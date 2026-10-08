@@ -18,11 +18,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CONFIGURAÇÃO DE BANCO E IMAGEM DO GITHUB ---
+# --- CONFIGURAÇÃO DE BANCO, PASTA DE COMPROVANTES E IMAGEM ---
 DB_FILE = "cafe_coletivo.db"
 ARQUIVO_CONFIG = "config_pix.json"
+PASTA_COMPROVANTES = "comprovantes"
 NOME_IMAGEM_LOCAL = "capa.jpg"
 URL_RESERVA_CAPA = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1200&auto=format&fit=crop"
+
+if not os.path.exists(PASTA_COMPROVANTES):
+    os.makedirs(PASTA_COMPROVANTES)
 
 def obter_bg_css():
     """Converte a imagem local para Base64 para usar no CSS de fundo ou usa a URL reserva."""
@@ -39,8 +43,6 @@ if "usuario_logado" not in st.session_state:
     st.session_state["usuario_logado"] = None
 
 eh_autenticado = st.session_state["usuario_logado"] is not None
-
-# Overlay suave na capa de login (0.25) e fosco escuro nas abas internas (0.92)
 overlay_opacity = "rgba(10, 14, 23, 0.92), rgba(15, 23, 42, 0.95)" if eh_autenticado else "rgba(10, 14, 23, 0.25), rgba(15, 23, 42, 0.40)"
 
 # --- APLICAÇÃO DE CSS DINÂMICO (DARK NEON TECH) ---
@@ -198,6 +200,17 @@ def init_db():
                     FOREIGN KEY(doador_id) REFERENCES usuarios(id)
                 )''')
 
+    # Tabela de Registros de Pagamento (Comprovantes do Rateio)
+    c.execute('''CREATE TABLE IF NOT EXISTS pagamentos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_hora TEXT NOT NULL,
+                    usuario_id INTEGER,
+                    valor_pago REAL NOT NULL,
+                    arquivo_comprovante TEXT NOT NULL,
+                    status TEXT DEFAULT 'Pendente',
+                    FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
+                )''')
+
     # Criar usuário Master inicial caso não exista
     c.execute("SELECT * FROM usuarios WHERE perfil = 'Master'")
     if not c.fetchone():
@@ -213,7 +226,9 @@ def init_db():
             "tipo_chave": "E-mail",
             "chave_pix": "admin@empresa.com",
             "nome_recebedor": "GESTAO CAFE COLETIVO",
-            "cidade_recebedor": "BELO HORIZONTE"
+            "cidade_recebedor": "BELO HORIZONTE",
+            "data_vencimento_rateio": datetime.now().strftime("%Y-%m-%d"),
+            "valor_rateio_por_pessoa": 0.0
         }
         with open(ARQUIVO_CONFIG, "w") as f:
             json.dump(config_inicial, f)
@@ -223,12 +238,10 @@ def get_db_connection():
 
 # --- FUNÇÕES DE UTILIDADE E CRIPTOGRAFIA ---
 def remover_acentos(texto):
-    """Remove acentos e caracteres especiais para o padrão do Banco Central"""
     if not texto:
         return ""
     nfkd = unicodedata.normalize('NFKD', texto)
     sem_acento = "".join([c for c in nfkd if not unicodedata.combining(c)])
-    # Mantém apenas letras, números e espaços
     return "".join([c for c in sem_acento if c.isalnum() or c.isspace()]).strip()
 
 def hash_senha(senha):
@@ -239,6 +252,10 @@ def carregar_config():
         config = json.load(f)
         if "tipo_chave" not in config:
             config["tipo_chave"] = "E-mail"
+        if "data_vencimento_rateio" not in config:
+            config["data_vencimento_rateio"] = datetime.now().strftime("%Y-%m-%d")
+        if "valor_rateio_por_pessoa" not in config:
+            config["valor_rateio_por_pessoa"] = 0.0
         return config
 
 def salvar_config(config):
@@ -259,8 +276,6 @@ def calcular_crc16(payload):
 
 def gerar_payload_pix(chave, nome, cidade, valor=0.0, txid="***"):
     chave_limpa = str(chave).strip()
-    
-    # Remove acentos obrigatoriamente
     nome_limpo = remover_acentos(nome)[:25].upper()
     cidade_limpa = remover_acentos(cidade)[:15].upper()
 
@@ -346,7 +361,6 @@ if eh_convidado:
 # 🔐 SISTEMA PRINCIPAL (AUTENTICADO)
 # ==========================================
 else:
-    # --- TELA DE LOGIN & CADASTRO COMPACTA E CENTRALIZADA ---
     if not st.session_state["usuario_logado"]:
         _, col_login_box, _ = st.columns([1, 1.2, 1])
 
@@ -491,12 +505,9 @@ else:
                     if item_nome:
                         conn = get_db_connection()
                         c = conn.cursor()
-                        
-                        # Inserir Compra
                         c.execute("INSERT INTO compras (data_hora, comprador_id, item, quantidade, valor_total) VALUES (?, ?, ?, ?, ?)",
                                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, qtd, valor_total))
                         
-                        # Atualizar Estoque
                         c.execute("SELECT quantidade FROM estoque WHERE item = ?", (item_nome,))
                         res = c.fetchone()
                         if res:
@@ -531,15 +542,11 @@ else:
                         pontos = int(qtd * 10)
                         conn = get_db_connection()
                         c = conn.cursor()
-                        
-                        # Inserir Doação
                         c.execute("INSERT INTO doacoes (data_hora, doador_id, item, quantidade, pontos_ganhos) VALUES (?, ?, ?, ?, ?)",
                                   (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, qtd, pontos))
                         
-                        # Atualizar Pontuação do Usuário
                         c.execute("UPDATE usuarios SET pontos = pontos + ? WHERE id = ?", (pontos, user["id"]))
 
-                        # Atualizar Estoque
                         c.execute("SELECT quantidade FROM estoque WHERE item = ?", (item_nome,))
                         res = c.fetchone()
                         if res:
@@ -572,14 +579,25 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 6. CHAVE PIX & CONTRIBUIÇÃO
+        # 6. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
-            st.header("💳 Chave Pix Oficial do Café Coletivo")
+            st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
+
+            valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
+            data_venc = config_pix.get("data_vencimento_rateio", "Não definida")
+
+            col_r1, col_r2 = st.columns(2)
+            col_r1.metric("💰 Valor do Rateio por Membro", f"R$ {valor_rateio:.2f}")
+            col_r2.metric("📅 Data Limite de Pagamento", data_venc)
+
+            st.divider()
+
             payload_pix = gerar_payload_pix(
                 chave=config_pix["chave_pix"], 
                 nome=config_pix.get("nome_recebedor", "CAFE COLETIVO"), 
-                cidade=config_pix.get("cidade_recebedor", "BELO HORIZONTE")
+                cidade=config_pix.get("cidade_recebedor", "BELO HORIZONTE"),
+                valor=valor_rateio
             )
             url_qr = obter_url_qr_code(payload_pix)
 
@@ -590,7 +608,39 @@ else:
                 st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
                 st.write(f"**Chave Pix Registrada:** `{config_pix['chave_pix']}`")
                 st.write(f"**Titular:** {remover_acentos(config_pix.get('nome_recebedor', 'CAFE COLETIVO'))}")
-                st.text_area("Copia e Cola Pix:", payload_pix, height=100)
+                st.text_area("Copia e Cola Pix (Payload EMV):", payload_pix, height=100)
+
+            st.divider()
+
+            # --- FORMULÁRIO DE ENVIO DE COMPROVANTE ---
+            st.subheader("📤 Registrar Pagamento / Anexar Comprovante")
+            with st.form("form_comprovante"):
+                valor_pago_input = st.number_input("Valor Pago (R$):", value=float(valor_rateio), min_value=0.01, step=1.0)
+                arquivo_enviado = st.file_uploader("Selecione o Comprovante (PNG, JPG ou PDF):", type=["png", "jpg", "jpeg", "pdf"])
+                
+                btn_enviar_comp = st.form_submit_button("📩 Enviar Comprovante de Pagamento")
+
+                if btn_enviar_comp:
+                    if arquivo_enviado is not None:
+                        # Salvar arquivo em disco
+                        extensao = arquivo_enviado.name.split(".")[-1]
+                        nome_arquivo_salvo = f"comp_user_{user['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extensao}"
+                        caminho_completo = os.path.join(PASTA_COMPROVANTES, nome_arquivo_salvo)
+
+                        with open(caminho_completo, "wb") as f:
+                            f.write(arquivo_enviado.getbuffer())
+
+                        # Salvar no banco
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("INSERT INTO pagamentos (data_hora, usuario_id, valor_pago, arquivo_comprovante) VALUES (?, ?, ?, ?)",
+                                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], valor_pago_input, nome_arquivo_salvo))
+                        conn.commit()
+                        conn.close()
+
+                        st.success("Comprovante enviado com sucesso! O administrador fará a conferência.")
+                    else:
+                        st.error("Por favor, selecione um ficheiro de comprovante.")
 
             st.divider()
 
@@ -600,12 +650,17 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 7. PAINEL MASTER / ADM
+        # 7. PAINEL MASTER / ADM (INCLUI RATEIO E CONFERÊNCIA DE COMPROVANTES)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
 
-            tab_users, tab_pix_cfg = st.tabs(["👥 Controle de Usuários", "⚙️ Configurações Pix"])
+            tab_users, tab_pix_cfg, tab_rateio, tab_limpeza = st.tabs([
+                "👥 Controle de Usuários", 
+                "⚙️ Configurações Pix", 
+                "💰 Gestão de Rateio", 
+                "🧹 Limpeza de Dados"
+            ])
 
             with tab_users:
                 conn = get_db_connection()
@@ -616,11 +671,9 @@ else:
 
                 st.subheader("Editar Dados do Usuário / Resetar Senha")
                 
-                # Mapeamento para caixa de seleção
                 user_dict = dict(zip(df_users["id"], df_users["Nome/Login"]))
                 user_selected_id = st.selectbox("Selecione o Usuário:", list(user_dict.keys()), format_func=lambda x: f"ID {x} - {user_dict[x]}")
 
-                # Busca dados do usuário selecionado
                 conn = get_db_connection()
                 c = conn.cursor()
                 c.execute("SELECT nome, email, perfil FROM usuarios WHERE id = ?", (user_selected_id,))
@@ -678,7 +731,6 @@ else:
                     if st.form_submit_button("💾 Salvar Nova Chave Pix"):
                         chave_limpa = chave.strip()
 
-                        # Trata Telefone: aceita com ou sem o sinal de + (Ex: +5531987121065)
                         if tipo_chave_sel == "Telefone":
                             apenas_num = "".join(filter(str.isdigit, chave_limpa))
                             if len(apenas_num) in [10, 11]:
@@ -686,16 +738,100 @@ else:
                             elif len(apenas_num) in [12, 13] and apenas_num.startswith("55"):
                                 chave_limpa = f"+{apenas_num}"
 
-                        # Trata CPF/CNPJ (apenas dígitos)
                         elif tipo_chave_sel == "CPF / CNPJ":
                             chave_limpa = "".join(filter(str.isdigit, chave_limpa))
 
                         config_pix["tipo_chave"] = tipo_chave_sel
                         config_pix["chave_pix"] = chave_limpa
-                        # Salva tirando acentos automaticamente
                         config_pix["nome_recebedor"] = remover_acentos(nome)
                         config_pix["cidade_recebedor"] = remover_acentos(cidade)
                         salvar_config(config_pix)
                         
                         st.success(f"Chave Pix salva e validada com sucesso! Valor: '{chave_limpa}'")
                         st.rerun()
+
+            # --- TAB DE GESTÃO DO RATEIO E VENCIMENTO ---
+            with tab_rateio:
+                st.subheader("💰 Calculadora de Rateio e Vencimento")
+
+                conn = get_db_connection()
+                # Soma das compras
+                total_compras = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
+                # Contagem de membros ativos (incluindo Master, ADM e Usuário)
+                total_membros = pd.read_sql_query("SELECT COUNT(*) as total FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)["total"].fillna(1).iloc[0]
+                conn.close()
+
+                rateio_calculado = total_compras / total_membros if total_membros > 0 else 0.0
+
+                c_rat1, c_rat2, c_rat3 = st.columns(3)
+                c_rat1.metric("🛒 Total Acumulado em Compras", f"R$ {total_compras:.2f}")
+                c_rat2.metric("👥 Total de Membros (Com Master/ADM)", f"{total_membros} pessoas")
+                c_rat3.metric("🧮 Rateio Sugerido / Pessoa", f"R$ {rateio_calculado:.2f}")
+
+                st.divider()
+
+                with st.form("form_definir_rateio"):
+                    st.write("Defina a **Data Limite de Vencimento** e confirme o valor oficial do rateio por membro:")
+                    
+                    val_rateio_final = st.number_input("Valor Oficial do Rateio por Pessoa (R$):", value=float(rateio_calculado), min_value=0.0, step=0.5)
+                    
+                    data_venc_atual = datetime.strptime(config_pix.get("data_vencimento_rateio", datetime.now().strftime("%Y-%m-%d")), "%Y-%m-%d").date()
+                    nova_data_venc = st.date_input("Data de Vencimento do Pagamento:", value=data_venc_atual)
+
+                    if st.form_submit_button("💾 Salvar Configurações do Rateio"):
+                        config_pix["valor_rateio_por_pessoa"] = val_rateio_final
+                        config_pix["data_vencimento_rateio"] = nova_data_venc.strftime("%Y-%m-%d")
+                        salvar_config(config_pix)
+                        st.success("Configurações do rateio atualizadas! Os membros visualizarão o novo valor e data de vencimento.")
+                        st.rerun()
+
+                st.divider()
+
+                # --- VISUALIZAÇÃO E VERIFICAÇÃO DE COMPROVANTES ---
+                st.subheader("📥 Comprovantes Enviados pelos Membros")
+                conn = get_db_connection()
+                df_pagamentos = pd.read_sql_query("""
+                    SELECT p.id, p.data_hora as 'Data/Hora', u.nome as 'Membro', p.valor_pago as 'Valor Pago', p.arquivo_comprovante as 'Ficheiro'
+                    FROM pagamentos p
+                    JOIN usuarios u ON p.usuario_id = u.id
+                    ORDER BY p.id DESC
+                """, conn)
+                conn.close()
+
+                if not df_pagamentos.empty:
+                    st.dataframe(df_pagamentos[["Data/Hora", "Membro", "Valor Pago", "Ficheiro"]], use_container_width=True)
+
+                    st.write("Selecione um registo para ver/descarregar o comprovativo:")
+                    pag_id_sel = st.selectbox("Selecione o Registo de Pagamento:", df_pagamentos["id"].tolist())
+                    
+                    row_pag = df_pagamentos[df_pagamentos["id"] == pag_id_sel].iloc[0]
+                    caminho_arq = os.path.join(PASTA_COMPROVANTES, row_pag["Ficheiro"])
+
+                    if os.path.exists(caminho_arq):
+                        with open(caminho_arq, "rb") as file:
+                            btn = st.download_button(
+                                label=f"⬇️ Descarregar Comprovativo de {row_pag['Membro']}",
+                                data=file,
+                                file_name=row_pag["Ficheiro"]
+                            )
+                else:
+                    st.info("Nenhum comprovativo enviado até ao momento.")
+
+            with tab_limpeza:
+                st.subheader("🧹 Limpeza do Banco de Doações e Ranking")
+                st.warning("⚠️ **Atenção:** Esta ação irá apagar todo o histórico de doações registadas e reiniciar os pontos de todos os doadores no Ranking para **0**.")
+
+                confirmar = st.checkbox("Confirmo que desejo apagar o histórico de doações e reiniciar os pontos do ranking.")
+
+                if st.button("🗑️ Apagar Banco de Doações e Zerar Ranking"):
+                    if confirmar:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("DELETE FROM doacoes")
+                        c.execute("UPDATE usuarios SET pontos = 0")
+                        conn.commit()
+                        conn.close()
+                        st.success("O banco de doações foi limpo e o ranking reiniciado com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Marque a caixa de seleção de confirmação acima para prosseguir.")
