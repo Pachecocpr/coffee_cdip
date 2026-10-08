@@ -507,7 +507,7 @@ else:
             valor_devido_por_pendente = (saldo_restante / qtd_pendentes) if qtd_pendentes > 0 else 0.0
 
             df_membros["Valor Devido (R$)"] = df_membros["id"].apply(
-                lambda x: 0.0 if x in pagos_ids else valor_devido_por_pendente
+                lambda x: 0.00 if x in pagos_ids else round(valor_devido_por_pendente, 2)
             )
 
             c_part1, c_part2 = st.columns([1, 1.2])
