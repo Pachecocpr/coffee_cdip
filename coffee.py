@@ -235,7 +235,7 @@ def salvar_config(config):
     with open(ARQUIVO_CONFIG, "w") as f:
         json.dump(config, f)
 
-# --- GERADOR PIX (EMV / QR CODE) ---
+# --- GERADOR PIX (EMV / QR CODE ISOLADO COM APENAS A CHAVE NO PAYLOAD) ---
 def calcular_crc16(payload):
     crc = 0xFFFF
     for char in payload:
@@ -248,12 +248,15 @@ def calcular_crc16(payload):
     return f"{crc:04X}"
 
 def gerar_payload_pix(chave, nome, cidade, valor=0.0, txid="***"):
-    nome = nome[:25].upper()
-    cidade = cidade[:15].upper()
+    # Garante que SOMENTE a string limpa da Chave Pix entre na tag da chave (01)
+    chave_limpa = str(chave).strip()
+    
+    nome = str(nome)[:25].upper().strip() if nome else "CAFE COLETIVO"
+    cidade = str(cidade)[:15].upper().strip() if cidade else "BELO HORIZONTE"
     valor_str = f"{valor:.2f}" if valor > 0 else ""
 
     gui = "0014br.gov.bcb.pix"
-    key = f"01{len(chave):02d}{chave}"
+    key = f"01{len(chave_limpa):02d}{chave_limpa}"
     merchant_account = f"26{len(gui + key):02d}{gui}{key}"
 
     cat = "52040000"
@@ -295,7 +298,13 @@ if eh_convidado:
     st.write("Seja bem-vindo! Caso deseje contribuir espontaneamente com o café do escritório, utilize a chave Pix abaixo.")
     
     col1, col2 = st.columns([1, 2])
-    payload_pix = gerar_payload_pix(config_pix["chave_pix"], config_pix["nome_recebedor"], config_pix["cidade_recebedor"])
+    
+    # ISOLA EXCLUSIVAMENTE A CHAVE NO PAYLOAD DO QR CODE
+    payload_pix = gerar_payload_pix(
+        chave=config_pix["chave_pix"], 
+        nome=config_pix.get("nome_recebedor", "CAFE COLETIVO"), 
+        cidade=config_pix.get("cidade_recebedor", "BELO HORIZONTE")
+    )
     url_qr = obter_url_qr_code(payload_pix)
 
     with col1:
@@ -303,9 +312,9 @@ if eh_convidado:
     with col2:
         st.subheader("📲 Pagamento via Pix")
         st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
-        st.write(f"**Chave Pix:** `{config_pix['chave_pix']}`")
-        st.write(f"**Titular:** {config_pix['nome_recebedor']}")
-        st.text_area("Copia e Cola Pix:", payload_pix, height=100)
+        st.write(f"**Chave Pix (Copiar):** `{config_pix['chave_pix']}`")
+        st.write(f"**Titular:** {config_pix.get('nome_recebedor', 'CAFE COLETIVO')}")
+        st.text_area("Copia e Cola Pix (Payload EMV):", payload_pix, height=100)
 
     st.divider()
     st.subheader("📦 Itens Disponíveis no Momento")
@@ -552,7 +561,11 @@ else:
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial do Café Coletivo")
-            payload_pix = gerar_payload_pix(config_pix["chave_pix"], config_pix["nome_recebedor"], config_pix["cidade_recebedor"])
+            payload_pix = gerar_payload_pix(
+                chave=config_pix["chave_pix"], 
+                nome=config_pix.get("nome_recebedor", "CAFE COLETIVO"), 
+                cidade=config_pix.get("cidade_recebedor", "BELO HORIZONTE")
+            )
             url_qr = obter_url_qr_code(payload_pix)
 
             col1, col2 = st.columns([1, 2])
@@ -561,7 +574,7 @@ else:
             with col2:
                 st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
                 st.write(f"**Chave Pix Registrada:** `{config_pix['chave_pix']}`")
-                st.write(f"**Titular:** {config_pix['nome_recebedor']}")
+                st.write(f"**Titular:** {config_pix.get('nome_recebedor', 'CAFE COLETIVO')}")
                 st.text_area("Copia e Cola Pix:", payload_pix, height=100)
 
             st.divider()
@@ -572,7 +585,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 7. PAINEL MASTER / ADM (COM CADASTRO E ALTERAÇÃO DA CHAVE PIX)
+        # 7. PAINEL MASTER / ADM (ISOLAMENTO E LIMPEZA DA CHAVE)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -628,7 +641,7 @@ else:
 
             with tab_pix_cfg:
                 st.subheader("⚙️ Alterar e Cadastrar Chave Pix")
-                st.write("Defina o tipo de chave Pix (Telefone, E-mail, CPF/CNPJ ou Aleatória) que será utilizada para arrecadação dos valores do café.")
+                st.write("Informe **exclusivamente** o valor da chave no campo correspondente para evitar erros no QR Code.")
 
                 tipos_pix = ["E-mail", "Telefone", "CPF / CNPJ", "Chave Aleatória (EVP)"]
                 tipo_atual = config_pix.get("tipo_chave", "E-mail")
@@ -639,18 +652,18 @@ else:
                     with col_p1:
                         tipo_chave_sel = st.selectbox("Tipo de Chave Pix:", tipos_pix, index=idx_tipo)
                     with col_p2:
-                        chave = st.text_input("Chave Pix (Digite a chave correspondente):", value=config_pix["chave_pix"])
+                        chave = st.text_input("Chave Pix (Somente a Chave):", value=config_pix["chave_pix"])
 
                     col_p3, col_p4 = st.columns(2)
                     with col_p3:
-                        nome = st.text_input("Nome do Titular Recebedor:", value=config_pix["nome_recebedor"])
+                        nome = st.text_input("Nome do Titular Recebedor:", value=config_pix.get("nome_recebedor", "CAFE COLETIVO"))
                     with col_p4:
-                        cidade = st.text_input("Cidade do Titular:", value=config_pix["cidade_recebedor"])
+                        cidade = st.text_input("Cidade do Titular:", value=config_pix.get("cidade_recebedor", "BELO HORIZONTE"))
 
                     if st.form_submit_button("💾 Salvar Nova Chave Pix"):
                         chave_limpa = chave.strip()
 
-                        # Tratamento para telefone (remove parênteses, traços e espaços)
+                        # Limpeza estrita para telefone (remove parenteses, traços e espaços)
                         if tipo_chave_sel == "Telefone":
                             chave_limpa = "".join(filter(str.isdigit, chave_limpa))
                             if not chave_limpa.startswith("55") and len(chave_limpa) in [10, 11]:
@@ -658,11 +671,15 @@ else:
                             elif not chave_limpa.startswith("+"):
                                 chave_limpa = f"+{chave_limpa}"
 
+                        # Limpeza estrita para CPF/CNPJ (apenas dígitos)
+                        elif tipo_chave_sel == "CPF / CNPJ":
+                            chave_limpa = "".join(filter(str.isdigit, chave_limpa))
+
                         config_pix["tipo_chave"] = tipo_chave_sel
                         config_pix["chave_pix"] = chave_limpa
                         config_pix["nome_recebedor"] = nome.strip()
                         config_pix["cidade_recebedor"] = cidade.strip()
                         salvar_config(config_pix)
                         
-                        st.success(f"Chave Pix ({tipo_chave_sel}) cadastrada e atualizada com sucesso!")
+                        st.success(f"Chave Pix salva com sucesso! Valor gravado: '{chave_limpa}'")
                         st.rerun()
