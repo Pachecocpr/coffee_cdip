@@ -33,7 +33,16 @@ def obter_bg_css():
 
 bg_url = obter_bg_css()
 
-# --- APLICAÇÃO DE CSS FUTURISTA COM IMAGEM DE FUNDO VÍVIDA ---
+# --- VERIFICAÇÃO DE ESTADO PARA AJUSTAR A OPACIDADE DO FUNDO ---
+if "usuario_logado" not in st.session_state:
+    st.session_state["usuario_logado"] = None
+
+eh_autenticado = st.session_state["usuario_logado"] is not None
+
+# Overlay bem suave na capa de login (0.25) e bem escuro nas abas internas (0.92)
+overlay_opacity = "rgba(10, 14, 23, 0.92), rgba(15, 23, 42, 0.95)" if eh_autenticado else "rgba(10, 14, 23, 0.25), rgba(15, 23, 42, 0.40)"
+
+# --- APLICAÇÃO DE CSS DINÂMICO (DARK NEON TECH) ---
 st.markdown(f"""
     <style>
     #MainMenu {{visibility: hidden;}}
@@ -46,9 +55,9 @@ st.markdown(f"""
         border-radius: 8px !important;
     }}
 
-    /* PLANO DE FUNDO VÍVIDO COM LEVE OVERLAY PARA DESTAR A IMAGEM */
+    /* PLANO DE FUNDO DINÂMICO: SUAVE NAS ABAS INTERNAS, VISÍVEL NO LOGIN */
     .stApp {{
-        background: linear-gradient(rgba(10, 14, 23, 0.25), rgba(15, 23, 42, 0.40)), url('{bg_url}') !important;
+        background: linear-gradient({overlay_opacity}), url('{bg_url}') !important;
         background-size: cover !important;
         background-position: center !important;
         background-attachment: fixed !important;
@@ -56,32 +65,31 @@ st.markdown(f"""
         color: #E2E8F0 !important;
     }}
 
-    /* FORMULÁRIO COMPACTO E ELEGANTE (GLASSMORPHISM) */
+    /* FORMULÁRIO E CARDS DAS ABAS INTERNAS */
     div[data-testid="stForm"] {{
-        background: rgba(10, 14, 23, 0.88) !important;
+        background: rgba(10, 14, 23, 0.90) !important;
         border-radius: 16px !important;
-        padding: 18px 22px !important;
-        border: 1px solid rgba(0, 240, 255, 0.4) !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.25) !important;
-        backdrop-filter: blur(10px) !important;
-    }}
-
-    div[data-testid="stExpander"], div.stContainer {{
-        background: rgba(15, 23, 42, 0.85) !important;
-        border-radius: 16px !important;
-        padding: 20px !important;
+        padding: 20px 24px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
         box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.15) !important;
         backdrop-filter: blur(12px) !important;
     }}
 
+    div[data-testid="stExpander"], div.stContainer {{
+        background: rgba(15, 23, 42, 0.90) !important;
+        border-radius: 16px !important;
+        padding: 20px !important;
+        border: 1px solid rgba(0, 240, 255, 0.25) !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.12) !important;
+        backdrop-filter: blur(12px) !important;
+    }}
+
     h1, h2, h3 {{
         color: #00F0FF !important;
-        text-shadow: 0 0 12px rgba(0, 240, 255, 0.6) !important;
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.5) !important;
         font-weight: 700 !important;
     }}
 
-    /* AJUSTE PARA TÍTULOS MENORES NO LOGIN COMPACTO */
     .login-title {{
         text-align: center;
         color: #00F0FF;
@@ -100,16 +108,16 @@ st.markdown(f"""
         border-radius: 8px !important;
         padding: 8px 16px !important;
         transition: all 0.3s ease !important;
-        box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.3) !important;
     }}
 
     div[data-testid="stFormSubmitButton"] > button:hover, .stButton > button:hover {{
         transform: scale(1.02) !important;
-        box-shadow: 0 0 25px rgba(0, 240, 255, 0.7) !important;
+        box-shadow: 0 0 25px rgba(0, 240, 255, 0.6) !important;
     }}
 
     section[data-testid="stSidebar"] {{
-        background-color: rgba(13, 17, 23, 0.92) !important;
+        background-color: rgba(13, 17, 23, 0.95) !important;
         border-right: 1px solid rgba(0, 240, 255, 0.2) !important;
         backdrop-filter: blur(10px) !important;
     }}
@@ -123,7 +131,7 @@ st.markdown(f"""
     }}
 
     div[data-testid="stMetric"] {{
-        background: rgba(15, 23, 42, 0.85) !important;
+        background: rgba(15, 23, 42, 0.90) !important;
         border-radius: 12px !important;
         padding: 16px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
@@ -194,9 +202,9 @@ def init_db():
     # Criar usuário Master inicial caso não exista
     c.execute("SELECT * FROM usuarios WHERE perfil = 'Master'")
     if not c.fetchone():
-        senha_admin = hashlib.sha256("Matrix@0580".encode()).hexdigest()
+        senha_admin = hashlib.sha256("admin123".encode()).hexdigest()
         c.execute("INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)",
-                  ("Célio Pacheco", "84130580", senha_admin, "Master"))
+                  ("Administrador Master", "admin@empresa.com", senha_admin, "Master"))
     
     conn.commit()
     conn.close()
@@ -311,12 +319,8 @@ if eh_convidado:
 # 🔐 SISTEMA PRINCIPAL (AUTENTICADO)
 # ==========================================
 else:
-    if "usuario_logado" not in st.session_state:
-        st.session_state["usuario_logado"] = None
-
     # --- TELA DE LOGIN & CADASTRO COMPACTA E CENTRALIZADA ---
     if not st.session_state["usuario_logado"]:
-        # Usa colunas para centralizar e diminuir o tamanho da caixa
         _, col_login_box, _ = st.columns([1, 1.2, 1])
 
         with col_login_box:
@@ -364,7 +368,7 @@ else:
                                 conn.close()
                                 st.success("Cadastro realizado! Acesse a aba 'Entrar'.")
                             except sqlite3.IntegrityError:
-                                st.error("E-mail já cadastrado.")
+                                st.error("E-mail ou Login já cadastrado.")
                         else:
                             st.warning("Preencha todos os campos.")
 
@@ -573,33 +577,50 @@ else:
 
             with tab_users:
                 conn = get_db_connection()
-                df_users = pd.read_sql_query("SELECT id, nome, email, perfil, ativo FROM usuarios", conn)
+                df_users = pd.read_sql_query("SELECT id, nome as 'Nome/Login', email as 'E-mail', perfil as 'Perfil', ativo as 'Ativo' FROM usuarios", conn)
                 conn.close()
 
                 st.dataframe(df_users, use_container_width=True)
 
-                st.subheader("Editar Perfil / Resetar Senha")
-                col_u1, col_u2, col_u3 = st.columns(3)
+                st.subheader("Editar Dados do Usuário / Resetar Senha")
+                
+                # Mapeamento para caixa de seleção
+                user_dict = dict(zip(df_users["id"], df_users["Nome/Login"]))
+                user_selected_id = st.selectbox("Selecione o Usuário:", list(user_dict.keys()), format_func=lambda x: f"ID {x} - {user_dict[x]}")
+
+                # Busca dados do usuário selecionado
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("SELECT nome, email, perfil FROM usuarios WHERE id = ?", (user_selected_id,))
+                user_data = c.fetchone()
+                conn.close()
+
+                col_u1, col_u2, col_u3, col_u4 = st.columns(4)
                 
                 with col_u1:
-                    user_selected_id = st.selectbox("Selecione o Usuário:", df_users["id"].tolist())
+                    novo_login = st.text_input("Novo Login / Nome:", value=user_data[0] if user_data else "")
                 with col_u2:
-                    novo_perfil = st.selectbox("Novo Perfil:", ["Usuário", "ADM", "Convidado"])
+                    novo_email = st.text_input("Novo E-mail:", value=user_data[1] if user_data else "")
                 with col_u3:
-                    nova_senha = st.text_input("Nova Senha (deixe em branco para não alterar):", type="password")
+                    novo_perfil = st.selectbox("Novo Perfil:", ["Usuário", "ADM", "Master", "Convidado"], index=["Usuário", "ADM", "Master", "Convidado"].index(user_data[2]) if user_data and user_data[2] in ["Usuário", "ADM", "Master", "Convidado"] else 0)
+                with col_u4:
+                    nova_senha = st.text_input("Nova Senha (deixe vazio para não alterar):", type="password")
 
                 if st.button("Salvar Alterações do Usuário"):
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("UPDATE usuarios SET perfil = ? WHERE id = ?", (novo_perfil, user_selected_id))
-                    
-                    if nova_senha:
-                        c.execute("UPDATE usuarios SET senha = ? WHERE id = ?", (hash_senha(nova_senha), user_selected_id))
-                    
-                    conn.commit()
-                    conn.close()
-                    st.success("Dados do usuário atualizados com sucesso!")
-                    st.rerun()
+                    try:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("UPDATE usuarios SET nome = ?, email = ?, perfil = ? WHERE id = ?", (novo_login, novo_email, novo_perfil, user_selected_id))
+                        
+                        if nova_senha:
+                            c.execute("UPDATE usuarios SET senha = ? WHERE id = ?", (hash_senha(nova_senha), user_selected_id))
+                        
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Usuário ID {user_selected_id} atualizado com sucesso!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("O E-mail ou Login informado já pertence a outro usuário.")
 
             with tab_pix_cfg:
                 with st.form("form_config_pix_admin"):
