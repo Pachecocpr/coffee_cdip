@@ -238,7 +238,7 @@ def init_db():
             "chave_pix": "admin@empresa.com",
             "nome_recebedor": "GESTAO CAFE COLETIVO",
             "cidade_recebedor": "BELO HORIZONTE",
-            "data_vencimento_rateio": datetime.now().strftime("%Y-%m-%d"),
+            "data_vencimento_rateio": datetime.now().strftime("%d/%m/%Y"),
             "valor_rateio_por_pessoa": 0.0
         }
         with open(ARQUIVO_CONFIG, "w") as f:
@@ -264,7 +264,7 @@ def carregar_config():
         if "tipo_chave" not in config:
             config["tipo_chave"] = "E-mail"
         if "data_vencimento_rateio" not in config:
-            config["data_vencimento_rateio"] = datetime.now().strftime("%Y-%m-%d")
+            config["data_vencimento_rateio"] = datetime.now().strftime("%d/%m/%Y")
         if "valor_rateio_por_pessoa" not in config:
             config["valor_rateio_por_pessoa"] = 0.0
         return config
@@ -272,6 +272,18 @@ def carregar_config():
 def salvar_config(config):
     with open(ARQUIVO_CONFIG, "w") as f:
         json.dump(config, f)
+
+def formatar_data_br(data_str):
+    """Garante que qualquer string de data seja exibida no padrão DD/MM/AAAA"""
+    if not data_str:
+        return "Não definida"
+    try:
+        if "-" in data_str:
+            dt = datetime.strptime(data_str, "%Y-%m-%d")
+            return dt.strftime("%d/%m/%Y")
+        return data_str
+    except Exception:
+        return data_str
 
 # --- GERADOR PIX VALIDADOR OFICIAL EMV / BANCO CENTRAL ---
 def calcular_crc16(payload):
@@ -453,10 +465,10 @@ else:
         opcao = st.sidebar.radio("Navegação", opcoes_menu)
 
         # ----------------------------------------------------
-        # 1. DASHBOARD & MÉTRICAS
+        # 1. DASHBOARD & MÉTRICAS (DATA NO PADRÃO DD/MM/AAAA)
         # ----------------------------------------------------
         if opcao == "📊 Dashboard & Métricas":
-            st.header("📊 Faturamento, Custos e Estoque")
+            st.header("📊 Faturamento, Custos, Estoque e Rateio")
             
             conn = get_db_connection()
             total_investido = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
@@ -468,6 +480,61 @@ else:
             m1.metric("💰 Investimento Total (Compras)", f"R$ {total_investido:.2f}")
             m2.metric("📦 Volume em Estoque (Un/Kg)", f"{total_itens_estoque:.1f}")
             m3.metric("🎁 Doações/Bônus Recebidos", f"{total_doacoes} registros")
+
+            st.divider()
+
+            # --- SEÇÃO VISUAL DE ARRECADAÇÃO E RATEIO ---
+            st.subheader("👥 Gestão de Participantes - Status do Rateio")
+
+            conn = get_db_connection()
+            df_membros = pd.read_sql_query("SELECT id, nome, perfil FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)
+            df_pags = pd.read_sql_query("SELECT DISTINCT usuario_id, valor_pago FROM pagamentos", conn)
+            conn.close()
+
+            valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
+            data_venc_br = formatar_data_br(config_pix.get("data_vencimento_rateio", ""))
+
+            pagos_ids = set(df_pags["usuario_id"].tolist())
+            
+            df_membros["Status"] = df_membros["id"].apply(lambda x: "🟢 Pago" if x in pagos_ids else "🔴 Pendente")
+            df_membros["Valor Devido (R$)"] = valor_rateio
+
+            qtd_pagos = len(df_membros[df_membros["Status"] == "🟢 Pago"])
+            qtd_pendentes = len(df_membros[df_membros["Status"] == "🔴 Pendente"])
+            total_membros_qtd = len(df_membros)
+            total_arrecadado = qtd_pagos * valor_rateio
+
+            c_part1, c_part2 = st.columns([1, 1.2])
+
+            with c_part1:
+                st.write(f"**Data Vencimento:** `{data_venc_br}` | **Valor por Membro:** `R$ {valor_rateio:.2f}`")
+                st.metric("Total Arrecadado", f"R$ {total_arrecadado:.2f}", f"{qtd_pagos}/{total_membros_qtd} Pagos")
+                
+                df_graf_rateio = pd.DataFrame({
+                    "Status": ["Pago", "Pendente"],
+                    "Quantidade": [qtd_pagos, qtd_pendentes]
+                })
+                fig_rateio = px.pie(
+                    df_graf_rateio, 
+                    values="Quantidade", 
+                    names="Status", 
+                    hole=0.5,
+                    color="Status",
+                    color_discrete_map={"Pago": "#00F0FF", "Pendente": "#FF0055"},
+                    template="plotly_dark"
+                )
+                fig_rateio.update_layout(margin=dict(t=20, b=20, l=10, r=10), height=220)
+                st.plotly_chart(fig_rateio, use_container_width=True)
+
+            with c_part2:
+                st.write("📋 **Lista de Transparência do Rateio:**")
+                st.dataframe(
+                    df_membros[["nome", "perfil", "Status", "Valor Devido (R$)"]].rename(
+                        columns={"nome": "Participante", "perfil": "Perfil"}
+                    ),
+                    use_container_width=True,
+                    height=280
+                )
 
             st.divider()
 
@@ -494,7 +561,7 @@ else:
                     st.info("Estoque vazio.")
 
         # ----------------------------------------------------
-        # 2. ESTOQUE GERAL (EXIBE APENAS ITENS COM QTD > 0)
+        # 2. ESTOQUE GERAL
         # ----------------------------------------------------
         elif opcao == "📦 Estoque Geral":
             st.header("📦 Controle do Estoque Atual")
@@ -670,17 +737,17 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
+        # 7. CHAVE PIX & CONTRIBUIÇÃO (DATA EM DD/MM/AAAA)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
 
             valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
-            data_venc = config_pix.get("data_vencimento_rateio", "Não definida")
+            data_venc_br = formatar_data_br(config_pix.get("data_vencimento_rateio", ""))
 
             col_r1, col_r2 = st.columns(2)
             col_r1.metric("💰 Valor do Rateio por Membro", f"R$ {valor_rateio:.2f}")
-            col_r2.metric("📅 Data Limite de Pagamento", data_venc)
+            col_r2.metric("📅 Data Limite de Pagamento", data_venc_br)
 
             st.divider()
 
@@ -726,7 +793,8 @@ else:
                         conn.commit()
                         conn.close()
 
-                        st.success("Comprovante enviado com sucesso! O administrador fará a conferência.")
+                        st.success("Comprovante enviado com sucesso! O status do seu pagamento já foi atualizado no Dashboard.")
+                        st.rerun()
                     else:
                         st.error("Por favor, selecione um arquivo de comprovante.")
 
@@ -738,7 +806,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 8. PAINEL MASTER / ADM (COM DELETE DIRETO NO LIMPEZA DE ESTOQUE)
+        # 8. PAINEL MASTER / ADM (SELETOR DE DATA FORMATADO)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -860,14 +928,24 @@ else:
                     
                     val_rateio_final = st.number_input("Valor Oficial do Rateio por Pessoa (R$):", value=float(rateio_calculado), min_value=0.0, step=0.5)
                     
-                    data_venc_atual = datetime.strptime(config_pix.get("data_vencimento_rateio", datetime.now().strftime("%Y-%m-%d")), "%Y-%m-%d").date()
-                    nova_data_venc = st.date_input("Data de Vencimento do Pagamento:", value=data_venc_atual)
+                    # Converte data salva para Datepicker
+                    raw_data = config_pix.get("data_vencimento_rateio", "")
+                    try:
+                        if "/" in raw_data:
+                            data_venc_atual = datetime.strptime(raw_data, "%d/%m/%Y").date()
+                        else:
+                            data_venc_atual = datetime.strptime(raw_data, "%Y-%m-%d").date()
+                    except Exception:
+                        data_venc_atual = datetime.now().date()
+
+                    nova_data_venc = st.date_input("Data de Vencimento do Pagamento:", value=data_venc_atual, format="DD/MM/YYYY")
 
                     if st.form_submit_button("💾 Salvar Configurações do Rateio"):
                         config_pix["valor_rateio_por_pessoa"] = val_rateio_final
-                        config_pix["data_vencimento_rateio"] = nova_data_venc.strftime("%Y-%m-%d")
+                        # Salva obrigatoriamente no padrão DD/MM/AAAA
+                        config_pix["data_vencimento_rateio"] = nova_data_venc.strftime("%d/%m/%Y")
                         salvar_config(config_pix)
-                        st.success("Configurações do rateio atualizadas! Os membros visualizarão o novo valor e data de vencimento.")
+                        st.success("Configurações do rateio atualizadas! Data salva no padrão DD/MM/AAAA.")
                         st.rerun()
 
                 st.divider()
@@ -901,7 +979,6 @@ else:
                 else:
                     st.info("Nenhum comprovante enviado até o momento.")
 
-            # --- ABA DE LIMPEZA DE DADOS (COM DELETE NO ESTOQUE) ---
             with tab_limpeza:
                 st.subheader("🧹 Limpeza de Históricos e Controle de Estoque")
                 st.write("Escolha o tipo de limpeza que deseja realizar no sistema:")
