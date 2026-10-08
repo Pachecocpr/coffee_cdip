@@ -169,7 +169,7 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 )''')
 
-    # Tabela de Estoque (Quantidade em Inteiro)
+    # Tabela de Estoque
     c.execute('''CREATE TABLE IF NOT EXISTS estoque (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     item TEXT UNIQUE NOT NULL,
@@ -465,7 +465,7 @@ else:
         opcao = st.sidebar.radio("Navegação", opcoes_menu)
 
         # ----------------------------------------------------
-        # 1. DASHBOARD & MÉTRICAS (ESTOQUE EM INTEIRO)
+        # 1. DASHBOARD & MÉTRICAS
         # ----------------------------------------------------
         if opcao == "📊 Dashboard & Métricas":
             st.header("📊 Faturamento, Custos, Estoque e Rateio")
@@ -504,10 +504,10 @@ else:
             total_membros_qtd = len(df_membros)
 
             saldo_restante = max(0.0, total_investido - total_arrecadado_real)
-            valor_devido_por_pendente = (saldo_restante / qtd_pendentes) if qtd_pendentes > 0 else 0.0
+            valor_devido_por_pendente = round((saldo_restante / qtd_pendentes), 2) if qtd_pendentes > 0 else 0.00
 
             df_membros["Valor Devido (R$)"] = df_membros["id"].apply(
-                lambda x: 0.00 if x in pagos_ids else round(valor_devido_por_pendente, 2)
+                lambda x: 0.00 if x in pagos_ids else valor_devido_por_pendente
             )
 
             c_part1, c_part2 = st.columns([1, 1.2])
@@ -539,9 +539,9 @@ else:
             with c_part2:
                 st.write("📋 **Lista de Transparência do Rateio:**")
                 st.dataframe(
-                    df_membros[["nome", "perfil", "Status", "Valor Devido (R$)"]].rename(
-                        columns={"nome": "Participante", "perfil": "Perfil"}
-                    ),
+                    df_membros[["nome", "perfil", "Status", "Valor Devido (R$)"]]
+                    .rename(columns={"nome": "Participante", "perfil": "Perfil"})
+                    .style.format({"Valor Devido (R$)": "R$ {:.2f}"}),
                     use_container_width=True,
                     height=280
                 )
@@ -571,7 +571,7 @@ else:
                     st.info("Estoque vazio.")
 
         # ----------------------------------------------------
-        # 2. ESTOQUE GERAL (NÚMEROS INTEIROS)
+        # 2. ESTOQUE GERAL
         # ----------------------------------------------------
         elif opcao == "📦 Estoque Geral":
             st.header("📦 Controle do Estoque Atual")
@@ -585,7 +585,7 @@ else:
                 st.info("Não há itens com saldo disponível no estoque no momento.")
 
         # ----------------------------------------------------
-        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE (QUANTIDADE INTEIRA)
+        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE
         # ----------------------------------------------------
         elif opcao == "☕ Consumo / Baixa de Item":
             st.header("☕ Registrar Consumo / Baixa do Estoque")
@@ -654,7 +654,7 @@ else:
                 st.info("Nenhuma saída registrada até o momento.")
 
         # ----------------------------------------------------
-        # 4. INFORMAR COMPRA (COM CUSTO - QUANTIDADE INTEIRA)
+        # 4. INFORMAR COMPRA (COM CUSTO)
         # ----------------------------------------------------
         elif opcao == "🛒 Informar Compra (Com Custo)":
             st.header("🛒 Registrar Compra para o Café")
@@ -691,7 +691,7 @@ else:
                         st.error("Informe o nome do item.")
 
         # ----------------------------------------------------
-        # 5. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO - QUANTIDADE INTEIRA)
+        # 5. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO)
         # ----------------------------------------------------
         elif opcao == "🎁 Registrar Bônus/Doação":
             st.header("🎁 Doar Item Extra (Pontua no Ranking)")
@@ -760,7 +760,7 @@ else:
 
             data_venc_br = formatar_data_br(config_pix.get("data_vencimento_rateio", ""))
             saldo_restante = max(0.0, total_compras - total_arrecadado_real)
-            valor_rateio_dinamico = (saldo_restante / df_pendentes_cnt) if df_pendentes_cnt > 0 else 0.0
+            valor_rateio_dinamico = round((saldo_restante / df_pendentes_cnt), 2) if df_pendentes_cnt > 0 else 0.00
 
             col_r1, col_r2 = st.columns(2)
             col_r1.metric("💰 Valor Devido Atual por Pendente", f"R$ {valor_rateio_dinamico:.2f}")
@@ -823,7 +823,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 8. PAINEL MASTER / ADM
+        # 8. PAINEL MASTER / ADM (LIMPEZA DE BANCOS SELECIOMÁVEIS)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -991,47 +991,65 @@ else:
                 else:
                     st.info("Nenhum comprovante enviado até o momento.")
 
+            # --- ABA DE LIMPEZA DE BANCOS MULTI-SELEÇÃO ---
             with tab_limpeza:
-                st.subheader("🧹 Limpeza de Históricos e Controle de Estoque")
-                st.write("Escolha o tipo de limpeza que deseja realizar no sistema:")
+                st.subheader("🧹 Limpeza Seletiva de Dados (Apenas Usuário Master)")
+                st.write("Marque abaixo quais módulos / bancos de dados você deseja zerar completamente:")
 
-                tipo_limpeza = st.radio(
-                    "Selecione o escopo da limpeza:",
-                    [
-                        "🎁 Apenas Doações e Ranking (Zera pontos e histórico de doações)",
-                        "📦 Apenas Estoque Atual (Remove todos os itens do estoque)",
-                        "💥 Limpeza Completa (Apaga Doações, Ranking e Itens do Estoque)"
-                    ]
-                )
+                col_limp1, col_limp2 = st.columns(2)
 
-                confirmar = st.checkbox("Confirmo que desejo executar a operação de limpeza selecionada.")
+                with col_limp1:
+                    limpar_compras = st.checkbox("🛒 **Histórico de Compras** (Registros de compras efetuadas com custo)")
+                    limpar_saidas = st.checkbox("☕ **Histórico de Consumo/Saídas** (Registros de itens consumidos)")
+                    limpar_pagamentos = st.checkbox("💳 **Histórico de Pagamentos e Comprovantes** (Pagamentos efetuados pelos membros)")
 
-                if st.button("🗑️ Executar Limpeza Selecionada"):
-                    if confirmar:
+                with col_limp2:
+                    limpar_doacoes = st.checkbox("🎁 **Doações e Ranking** (Histórico de doações e zerar pontos acumulados)")
+                    limpar_estoque = st.checkbox("📦 **Estoque Atual** (Remove todos os itens cadastrados no estoque)")
+
+                st.divider()
+                confirmar_limpeza = st.checkbox("⚠️ **Confirmo a exclusão definitiva dos dados selecionados acima.**")
+
+                if st.button("🗑️ Executar Limpeza dos Bancos Selecionados"):
+                    if not (limpar_compras or limpar_saidas or limpar_pagamentos or limpar_doacoes or limpar_estoque):
+                        st.warning("Selecione ao menos uma opção para executar a limpeza.")
+                    elif not confirmar_limpeza:
+                        st.error("Marque a caixa de confirmação para autorizar a limpeza.")
+                    else:
                         conn = get_db_connection()
                         c = conn.cursor()
+                        mensagens_sucesso = []
 
-                        if "Apenas Doações" in tipo_limpeza:
+                        if limpar_compras:
+                            c.execute("DELETE FROM compras")
+                            mensagens_sucesso.append("🛒 Histórico de compras zerado.")
+
+                        if limpar_saidas:
+                            c.execute("DELETE FROM saidas")
+                            mensagens_sucesso.append("☕ Histórico de consumo/saídas zerado.")
+
+                        if limpar_pagamentos:
+                            c.execute("DELETE FROM pagamentos")
+                            # Apaga arquivos físicos de comprovantes
+                            for arq in os.listdir(PASTA_COMPROVANTES):
+                                arq_path = os.path.join(PASTA_COMPROVANTES, arq)
+                                if os.path.isfile(arq_path):
+                                    os.remove(arq_path)
+                            mensagens_sucesso.append("💳 Histórico de pagamentos e comprovantes apagados.")
+
+                        if limpar_doacoes:
                             c.execute("DELETE FROM doacoes")
                             c.execute("UPDATE usuarios SET pontos = 0")
-                            conn.commit()
-                            conn.close()
-                            st.success("O histórico de doações foi apagado e o ranking de pontos foi zerado!")
+                            mensagens_sucesso.append("🎁 Histórico de doações apagado e ranking zerado.")
 
-                        elif "Apenas Estoque" in tipo_limpeza:
+                        if limpar_estoque:
                             c.execute("DELETE FROM estoque")
-                            conn.commit()
-                            conn.close()
-                            st.success("Todos os itens foram totalmente removidos da tabela de estoque!")
+                            mensagens_sucesso.append("📦 Todos os itens do estoque foram removidos.")
 
-                        elif "Limpeza Completa" in tipo_limpeza:
-                            c.execute("DELETE FROM doacoes")
-                            c.execute("UPDATE usuarios SET pontos = 0")
-                            c.execute("DELETE FROM estoque")
-                            conn.commit()
-                            conn.close()
-                            st.success("Limpeza completa realizada! Estoque apagado, histórico de doações removido e ranking reiniciado.")
+                        conn.commit()
+                        conn.close()
+
+                        for msg in mensagens_sucesso:
+                            st.success(msg)
 
                         st.rerun()
-                    else:
-                        st.error("Marque a caixa de seleção de confirmação acima para prosseguir.")
