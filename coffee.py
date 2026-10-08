@@ -465,7 +465,7 @@ else:
         opcao = st.sidebar.radio("Navegação", opcoes_menu)
 
         # ----------------------------------------------------
-        # 1. DASHBOARD & MÉTRICAS (DATA NO PADRÃO DD/MM/AAAA)
+        # 1. DASHBOARD & MÉTRICAS (COM AJUSTE DO VALOR DEVIDO = 0 PARA PAGOS)
         # ----------------------------------------------------
         if opcao == "📊 Dashboard & Métricas":
             st.header("📊 Faturamento, Custos, Estoque e Rateio")
@@ -488,7 +488,7 @@ else:
 
             conn = get_db_connection()
             df_membros = pd.read_sql_query("SELECT id, nome, perfil FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)
-            df_pags = pd.read_sql_query("SELECT DISTINCT usuario_id, valor_pago FROM pagamentos", conn)
+            df_pags = pd.read_sql_query("SELECT DISTINCT usuario_id FROM pagamentos", conn)
             conn.close()
 
             valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
@@ -497,7 +497,8 @@ else:
             pagos_ids = set(df_pags["usuario_id"].tolist())
             
             df_membros["Status"] = df_membros["id"].apply(lambda x: "🟢 Pago" if x in pagos_ids else "🔴 Pendente")
-            df_membros["Valor Devido (R$)"] = valor_rateio
+            # Se pagou, o valor devido fica 0. Caso contrário, assume o valor do rateio
+            df_membros["Valor Devido (R$)"] = df_membros["id"].apply(lambda x: 0.0 if x in pagos_ids else valor_rateio)
 
             qtd_pagos = len(df_membros[df_membros["Status"] == "🟢 Pago"])
             qtd_pendentes = len(df_membros[df_membros["Status"] == "🔴 Pendente"])
@@ -737,7 +738,7 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 7. CHAVE PIX & CONTRIBUIÇÃO (DATA EM DD/MM/AAAA)
+        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
@@ -806,7 +807,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 8. PAINEL MASTER / ADM (SELETOR DE DATA FORMATADO)
+        # 8. PAINEL MASTER / ADM
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -928,7 +929,6 @@ else:
                     
                     val_rateio_final = st.number_input("Valor Oficial do Rateio por Pessoa (R$):", value=float(rateio_calculado), min_value=0.0, step=0.5)
                     
-                    # Converte data salva para Datepicker
                     raw_data = config_pix.get("data_vencimento_rateio", "")
                     try:
                         if "/" in raw_data:
@@ -942,10 +942,9 @@ else:
 
                     if st.form_submit_button("💾 Salvar Configurações do Rateio"):
                         config_pix["valor_rateio_por_pessoa"] = val_rateio_final
-                        # Salva obrigatoriamente no padrão DD/MM/AAAA
                         config_pix["data_vencimento_rateio"] = nova_data_venc.strftime("%d/%m/%Y")
                         salvar_config(config_pix)
-                        st.success("Configurações do rateio atualizadas! Data salva no padrão DD/MM/AAAA.")
+                        st.success("Configurações do rateio atualizadas!")
                         st.rerun()
 
                 st.divider()
