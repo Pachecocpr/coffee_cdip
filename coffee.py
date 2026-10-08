@@ -200,6 +200,17 @@ def init_db():
                     FOREIGN KEY(doador_id) REFERENCES usuarios(id)
                 )''')
 
+    # Tabela de Consumo/Saídas do Estoque
+    c.execute('''CREATE TABLE IF NOT EXISTS saidas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_hora TEXT NOT NULL,
+                    usuario_id INTEGER,
+                    item TEXT NOT NULL,
+                    quantidade REAL NOT NULL,
+                    motivo TEXT DEFAULT 'Consumo Interno',
+                    FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
+                )''')
+
     # Tabela de Registros de Pagamento (Comprovantes do Rateio)
     c.execute('''CREATE TABLE IF NOT EXISTS pagamentos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -426,7 +437,15 @@ else:
             st.session_state["usuario_logado"] = None
             st.rerun()
 
-        opcoes_menu = ["📊 Dashboard & Métricas", "📦 Estoque Geral", "🛒 Informar Compra (Com Custo)", "🎁 Registrar Bônus/Doação", "🏆 Ranking de Doadores", "💳 Chave Pix & Contribuição"]
+        opcoes_menu = [
+            "📊 Dashboard & Métricas", 
+            "📦 Estoque Geral", 
+            "☕ Consumo / Baixa de Item",
+            "🛒 Informar Compra (Com Custo)", 
+            "🎁 Registrar Bônus/Doação", 
+            "🏆 Ranking de Doadores", 
+            "💳 Chave Pix & Contribuição"
+        ]
         
         if user["perfil"] in ["Master", "ADM"]:
             opcoes_menu.append("🛠️ Painel Master (Gestão)")
@@ -486,7 +505,79 @@ else:
             st.dataframe(df_estoque, use_container_width=True)
 
         # ----------------------------------------------------
-        # 3. INFORMAR COMPRA (COM CUSTO)
+        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE (NOVO)
+        # ----------------------------------------------------
+        elif opcao == "☕ Consumo / Baixa de Item":
+            st.header("☕ Registrar Consumo / Baixa do Estoque")
+            st.write("Abriu um pó de café, usou um pacote de açúcar ou consumiu algum item? Registre a baixa aqui.")
+
+            conn = get_db_connection()
+            df_disponivel = pd.read_sql_query("SELECT item, quantidade, unidade FROM estoque WHERE quantidade > 0", conn)
+            conn.close()
+
+            if not df_disponivel.empty:
+                dict_itens = dict(zip(df_disponivel["item"], df_disponivel["quantidade"]))
+                dict_unidades = dict(zip(df_disponivel["item"], df_disponivel["unidade"]))
+
+                with st.form("form_baixa_estoque"):
+                    item_selecionado = st.selectbox("Selecione o Item Consumido:", list(dict_itens.keys()))
+                    qtd_disponivel = dict_itens[item_selecionado]
+                    unidade_item = dict_unidades[item_selecionado]
+
+                    st.info(f"Quantidade disponível em estoque: **{qtd_disponivel} {unidade_item}**")
+
+                    qtd_consumida = st.number_input(
+                        f"Quantidade Consumida ({unidade_item}):", 
+                        min_value=0.1, 
+                        max_value=float(qtd_disponivel), 
+                        step=0.5
+                    )
+                    motivo_consumo = st.text_input("Motivo / Observação:", value="Consumo Interno / Uso da Equipe")
+
+                    if st.form_submit_button("📉 Registrar Baixa no Estoque"):
+                        conn = get_db_connection()
+                        c = conn.cursor()
+
+                        # 1. Registrar a saída no histórico
+                        c.execute(
+                            "INSERT INTO saidas (data_hora, usuario_id, item, quantidade, motivo) VALUES (?, ?, ?, ?, ?)",
+                            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_selecionado, qtd_consumida, motivo_consumo)
+                        )
+
+                        # 2. Descontar da quantidade do estoque
+                        c.execute(
+                            "UPDATE estoque SET quantidade = quantidade - ? WHERE item = ?", 
+                            (qtd_consumida, item_selecionado)
+                        )
+
+                        conn.commit()
+                        conn.close()
+
+                        st.success(f"Baixa de {qtd_consumida} {unidade_item} de '{item_selecionado}' registrada com sucesso!")
+                        st.rerun()
+            else:
+                st.warning("Não há itens disponíveis no estoque no momento.")
+
+            st.divider()
+
+            # --- HISTÓRICO DE CONSUMO ---
+            st.subheader("📋 Histórico de Consumo / Saídas Recentes")
+            conn = get_db_connection()
+            df_saidas = pd.read_sql_query("""
+                SELECT s.data_hora as 'Data/Hora', u.nome as 'Usuário', s.item as 'Item', s.quantidade as 'Qtd Retirada', s.motivo as 'Motivo'
+                FROM saidas s
+                JOIN usuarios u ON s.usuario_id = u.id
+                ORDER BY s.id DESC LIMIT 15
+            """, conn)
+            conn.close()
+
+            if not df_saidas.empty:
+                st.dataframe(df_saidas, use_container_width=True)
+            else:
+                st.info("Nenhuma saída registrada até o momento.")
+
+        # ----------------------------------------------------
+        # 4. INFORMAR COMPRA (COM CUSTO)
         # ----------------------------------------------------
         elif opcao == "🛒 Informar Compra (Com Custo)":
             st.header("🛒 Registrar Compra para o Café")
@@ -523,7 +614,7 @@ else:
                         st.error("Informe o nome do item.")
 
         # ----------------------------------------------------
-        # 4. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO)
+        # 5. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO)
         # ----------------------------------------------------
         elif opcao == "🎁 Registrar Bônus/Doação":
             st.header("🎁 Doar Item Extra (Pontua no Ranking)")
@@ -563,7 +654,7 @@ else:
                         st.error("Informe o item doado.")
 
         # ----------------------------------------------------
-        # 5. RANKING DE DOADORES
+        # 6. RANKING DE DOADORES
         # ----------------------------------------------------
         elif opcao == "🏆 Ranking de Doadores":
             st.header("🏆 Ranking de Colaboradores e Doadores")
@@ -579,7 +670,7 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 6. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
+        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
@@ -612,7 +703,6 @@ else:
 
             st.divider()
 
-            # --- FORMULÁRIO DE ENVIO DE COMPROVANTE ---
             st.subheader("📤 Registrar Pagamento / Anexar Comprovante")
             with st.form("form_comprovante"):
                 valor_pago_input = st.number_input("Valor Pago (R$):", value=float(valor_rateio), min_value=0.01, step=1.0)
@@ -622,7 +712,6 @@ else:
 
                 if btn_enviar_comp:
                     if arquivo_enviado is not None:
-                        # Salvar arquivo em disco
                         extensao = arquivo_enviado.name.split(".")[-1]
                         nome_arquivo_salvo = f"comp_user_{user['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extensao}"
                         caminho_completo = os.path.join(PASTA_COMPROVANTES, nome_arquivo_salvo)
@@ -630,7 +719,6 @@ else:
                         with open(caminho_completo, "wb") as f:
                             f.write(arquivo_enviado.getbuffer())
 
-                        # Salvar no banco
                         conn = get_db_connection()
                         c = conn.cursor()
                         c.execute("INSERT INTO pagamentos (data_hora, usuario_id, valor_pago, arquivo_comprovante) VALUES (?, ?, ?, ?)",
@@ -640,7 +728,7 @@ else:
 
                         st.success("Comprovante enviado com sucesso! O administrador fará a conferência.")
                     else:
-                        st.error("Por favor, selecione um ficheiro de comprovante.")
+                        st.error("Por favor, selecione um arquivo de comprovante.")
 
             st.divider()
 
@@ -650,7 +738,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 7. PAINEL MASTER / ADM (INCLUI RATEIO E CONFERÊNCIA DE COMPROVANTES)
+        # 8. PAINEL MASTER / ADM (INCLUI RATEIO E LIMPEZA DE ESTOQUE/DOAÇÕES)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -750,14 +838,11 @@ else:
                         st.success(f"Chave Pix salva e validada com sucesso! Valor: '{chave_limpa}'")
                         st.rerun()
 
-            # --- TAB DE GESTÃO DO RATEIO E VENCIMENTO ---
             with tab_rateio:
                 st.subheader("💰 Calculadora de Rateio e Vencimento")
 
                 conn = get_db_connection()
-                # Soma das compras
                 total_compras = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
-                # Contagem de membros ativos (incluindo Master, ADM e Usuário)
                 total_membros = pd.read_sql_query("SELECT COUNT(*) as total FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)["total"].fillna(1).iloc[0]
                 conn.close()
 
@@ -787,11 +872,10 @@ else:
 
                 st.divider()
 
-                # --- VISUALIZAÇÃO E VERIFICAÇÃO DE COMPROVANTES ---
                 st.subheader("📥 Comprovantes Enviados pelos Membros")
                 conn = get_db_connection()
                 df_pagamentos = pd.read_sql_query("""
-                    SELECT p.id, p.data_hora as 'Data/Hora', u.nome as 'Membro', p.valor_pago as 'Valor Pago', p.arquivo_comprovante as 'Ficheiro'
+                    SELECT p.id, p.data_hora as 'Data/Hora', u.nome as 'Membro', p.valor_pago as 'Valor Pago', p.arquivo_comprovante as 'Arquivo'
                     FROM pagamentos p
                     JOIN usuarios u ON p.usuario_id = u.id
                     ORDER BY p.id DESC
@@ -799,39 +883,66 @@ else:
                 conn.close()
 
                 if not df_pagamentos.empty:
-                    st.dataframe(df_pagamentos[["Data/Hora", "Membro", "Valor Pago", "Ficheiro"]], use_container_width=True)
+                    st.dataframe(df_pagamentos[["Data/Hora", "Membro", "Valor Pago", "Arquivo"]], use_container_width=True)
 
-                    st.write("Selecione um registo para ver/descarregar o comprovativo:")
-                    pag_id_sel = st.selectbox("Selecione o Registo de Pagamento:", df_pagamentos["id"].tolist())
+                    st.write("Selecione um registro para baixar o comprovante:")
+                    pag_id_sel = st.selectbox("Selecione o Registro de Pagamento:", df_pagamentos["id"].tolist())
                     
                     row_pag = df_pagamentos[df_pagamentos["id"] == pag_id_sel].iloc[0]
-                    caminho_arq = os.path.join(PASTA_COMPROVANTES, row_pag["Ficheiro"])
+                    caminho_arq = os.path.join(PASTA_COMPROVANTES, row_pag["Arquivo"])
 
                     if os.path.exists(caminho_arq):
                         with open(caminho_arq, "rb") as file:
                             btn = st.download_button(
-                                label=f"⬇️ Descarregar Comprovativo de {row_pag['Membro']}",
+                                label=f"⬇️ Baixar Comprovante de {row_pag['Membro']}",
                                 data=file,
-                                file_name=row_pag["Ficheiro"]
+                                file_name=row_pag["Arquivo"]
                             )
                 else:
-                    st.info("Nenhum comprovativo enviado até ao momento.")
+                    st.info("Nenhum comprovante enviado até o momento.")
 
+            # --- ABA DE LIMPEZA DE DADOS ---
             with tab_limpeza:
-                st.subheader("🧹 Limpeza do Banco de Doações e Ranking")
-                st.warning("⚠️ **Atenção:** Esta ação irá apagar todo o histórico de doações registadas e reiniciar os pontos de todos os doadores no Ranking para **0**.")
+                st.subheader("🧹 Limpeza de Históricos e Controle de Estoque")
+                st.write("Escolha o tipo de limpeza que deseja realizar no sistema:")
 
-                confirmar = st.checkbox("Confirmo que desejo apagar o histórico de doações e reiniciar os pontos do ranking.")
+                tipo_limpeza = st.radio(
+                    "Selecione o escopo da limpeza:",
+                    [
+                        "🎁 Apenas Doações e Ranking (Zera pontos e histórico de doações)",
+                        "📦 Apenas Estoque Atual (Zera as quantidades do estoque)",
+                        "💥 Limpeza Completa (Zera Doações, Ranking e Estoque)"
+                    ]
+                )
 
-                if st.button("🗑️ Apagar Banco de Doações e Zerar Ranking"):
+                confirmar = st.checkbox("Confirmo que desejo executar a operação de limpeza selecionada.")
+
+                if st.button("🗑️ Executar Limpeza Selecionada"):
                     if confirmar:
                         conn = get_db_connection()
                         c = conn.cursor()
-                        c.execute("DELETE FROM doacoes")
-                        c.execute("UPDATE usuarios SET pontos = 0")
-                        conn.commit()
-                        conn.close()
-                        st.success("O banco de doações foi limpo e o ranking reiniciado com sucesso!")
+
+                        if "Apenas Doações" in tipo_limpeza:
+                            c.execute("DELETE FROM doacoes")
+                            c.execute("UPDATE usuarios SET pontos = 0")
+                            conn.commit()
+                            conn.close()
+                            st.success("O histórico de doações foi apagado e o ranking de pontos foi zerado com sucesso!")
+
+                        elif "Apenas Estoque" in tipo_limpeza:
+                            c.execute("UPDATE estoque SET quantidade = 0")
+                            conn.commit()
+                            conn.close()
+                            st.success("A quantidade de todos os itens do estoque foi zerada!")
+
+                        elif "Limpeza Completa" in tipo_limpeza:
+                            c.execute("DELETE FROM doacoes")
+                            c.execute("UPDATE usuarios SET pontos = 0")
+                            c.execute("UPDATE estoque SET quantidade = 0")
+                            conn.commit()
+                            conn.close()
+                            st.success("Limpeza completa realizada! Estoque zerado, histórico de doações apagado e ranking reiniciado.")
+
                         st.rerun()
                     else:
                         st.error("Marque a caixa de seleção de confirmação acima para prosseguir.")
