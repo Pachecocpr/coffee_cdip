@@ -151,9 +151,9 @@ def init_db():
     # Criar usuário Master inicial caso não exista
     c.execute("SELECT * FROM usuarios WHERE perfil = 'Master'")
     if not c.fetchone():
-        senha_admin = hashlib.sha256("admin123".encode()).hexdigest()
+        senha_admin = hashlib.sha256("Matrix@0580".encode()).hexdigest()
         c.execute("INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, ?)",
-                  ("Administrador Master", "admin@empresa.com", senha_admin, "Master"))
+                  ("Célio Pacheco", "84130580", senha_admin, "Master"))
     
     conn.commit()
     conn.close()
