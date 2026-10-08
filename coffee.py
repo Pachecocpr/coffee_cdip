@@ -12,7 +12,7 @@ import plotly.express as px
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Gestão Café Coletivo - NextGen Office", 
-    page_icon="", 
+    page_icon="☕", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -39,7 +39,7 @@ if "usuario_logado" not in st.session_state:
 
 eh_autenticado = st.session_state["usuario_logado"] is not None
 
-# Overlay bem suave na capa de login (0.25) e bem escuro nas abas internas (0.92)
+# Overlay suave na capa de login (0.25) e fosco escuro nas abas internas (0.92)
 overlay_opacity = "rgba(10, 14, 23, 0.92), rgba(15, 23, 42, 0.95)" if eh_autenticado else "rgba(10, 14, 23, 0.25), rgba(15, 23, 42, 0.40)"
 
 # --- APLICAÇÃO DE CSS DINÂMICO (DARK NEON TECH) ---
@@ -55,7 +55,6 @@ st.markdown(f"""
         border-radius: 8px !important;
     }}
 
-    /* PLANO DE FUNDO DINÂMICO: SUAVE NAS ABAS INTERNAS, VISÍVEL NO LOGIN */
     .stApp {{
         background: linear-gradient({overlay_opacity}), url('{bg_url}') !important;
         background-size: cover !important;
@@ -65,7 +64,6 @@ st.markdown(f"""
         color: #E2E8F0 !important;
     }}
 
-    /* FORMULÁRIO E CARDS DAS ABAS INTERNAS */
     div[data-testid="stForm"] {{
         background: rgba(10, 14, 23, 0.90) !important;
         border-radius: 16px !important;
@@ -211,6 +209,7 @@ def init_db():
 
     if not os.path.exists(ARQUIVO_CONFIG):
         config_inicial = {
+            "tipo_chave": "E-mail",
             "chave_pix": "admin@empresa.com",
             "nome_recebedor": "GESTAO CAFE COLETIVO",
             "cidade_recebedor": "BELO HORIZONTE"
@@ -227,7 +226,10 @@ def hash_senha(senha):
 
 def carregar_config():
     with open(ARQUIVO_CONFIG, "r") as f:
-        return json.load(f)
+        config = json.load(f)
+        if "tipo_chave" not in config:
+            config["tipo_chave"] = "E-mail"
+        return config
 
 def salvar_config(config):
     with open(ARQUIVO_CONFIG, "w") as f:
@@ -300,6 +302,7 @@ if eh_convidado:
         st.image(url_qr, width=220)
     with col2:
         st.subheader("📲 Pagamento via Pix")
+        st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
         st.write(f"**Chave Pix:** `{config_pix['chave_pix']}`")
         st.write(f"**Titular:** {config_pix['nome_recebedor']}")
         st.text_area("Copia e Cola Pix:", payload_pix, height=100)
@@ -556,6 +559,7 @@ else:
             with col1:
                 st.image(url_qr, width=220)
             with col2:
+                st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
                 st.write(f"**Chave Pix Registrada:** `{config_pix['chave_pix']}`")
                 st.write(f"**Titular:** {config_pix['nome_recebedor']}")
                 st.text_area("Copia e Cola Pix:", payload_pix, height=100)
@@ -568,7 +572,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 7. PAINEL MASTER / ADM
+        # 7. PAINEL MASTER / ADM (COM CADASTRO E ALTERAÇÃO DA CHAVE PIX)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -623,15 +627,42 @@ else:
                         st.error("O E-mail ou Login informado já pertence a outro usuário.")
 
             with tab_pix_cfg:
+                st.subheader("⚙️ Alterar e Cadastrar Chave Pix")
+                st.write("Defina o tipo de chave Pix (Telefone, E-mail, CPF/CNPJ ou Aleatória) que será utilizada para arrecadação dos valores do café.")
+
+                tipos_pix = ["E-mail", "Telefone", "CPF / CNPJ", "Chave Aleatória (EVP)"]
+                tipo_atual = config_pix.get("tipo_chave", "E-mail")
+                idx_tipo = tipos_pix.index(tipo_atual) if tipo_atual in tipos_pix else 0
+
                 with st.form("form_config_pix_admin"):
-                    chave = st.text_input("Chave Pix:", value=config_pix["chave_pix"])
-                    nome = st.text_input("Nome do Recebedor:", value=config_pix["nome_recebedor"])
-                    cidade = st.text_input("Cidade:", value=config_pix["cidade_recebedor"])
-                    
-                    if st.form_submit_button("Atualizar Configurações Pix"):
-                        config_pix["chave_pix"] = chave
-                        config_pix["nome_recebedor"] = nome
-                        config_pix["cidade_recebedor"] = cidade
+                    col_p1, col_p2 = st.columns(2)
+                    with col_p1:
+                        tipo_chave_sel = st.selectbox("Tipo de Chave Pix:", tipos_pix, index=idx_tipo)
+                    with col_p2:
+                        chave = st.text_input("Chave Pix (Digite a chave correspondente):", value=config_pix["chave_pix"])
+
+                    col_p3, col_p4 = st.columns(2)
+                    with col_p3:
+                        nome = st.text_input("Nome do Titular Recebedor:", value=config_pix["nome_recebedor"])
+                    with col_p4:
+                        cidade = st.text_input("Cidade do Titular:", value=config_pix["cidade_recebedor"])
+
+                    if st.form_submit_button("💾 Salvar Nova Chave Pix"):
+                        chave_limpa = chave.strip()
+
+                        # Tratamento para telefone (remove parênteses, traços e espaços)
+                        if tipo_chave_sel == "Telefone":
+                            chave_limpa = "".join(filter(str.isdigit, chave_limpa))
+                            if not chave_limpa.startswith("55") and len(chave_limpa) in [10, 11]:
+                                chave_limpa = f"+55{chave_limpa}"
+                            elif not chave_limpa.startswith("+"):
+                                chave_limpa = f"+{chave_limpa}"
+
+                        config_pix["tipo_chave"] = tipo_chave_sel
+                        config_pix["chave_pix"] = chave_limpa
+                        config_pix["nome_recebedor"] = nome.strip()
+                        config_pix["cidade_recebedor"] = cidade.strip()
                         salvar_config(config_pix)
-                        st.success("Configurações do Pix salvas!")
+                        
+                        st.success(f"Chave Pix ({tipo_chave_sel}) cadastrada e atualizada com sucesso!")
                         st.rerun()
