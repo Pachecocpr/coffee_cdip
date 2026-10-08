@@ -169,12 +169,12 @@ def init_db():
                     ativo INTEGER DEFAULT 1
                 )''')
 
-    # Tabela de Estoque
+    # Tabela de Estoque (Quantidade em Inteiro)
     c.execute('''CREATE TABLE IF NOT EXISTS estoque (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     item TEXT UNIQUE NOT NULL,
                     categoria TEXT NOT NULL,
-                    quantidade REAL DEFAULT 0,
+                    quantidade INTEGER DEFAULT 0,
                     unidade TEXT NOT NULL
                 )''')
 
@@ -184,7 +184,7 @@ def init_db():
                     data_hora TEXT NOT NULL,
                     comprador_id INTEGER,
                     item TEXT NOT NULL,
-                    quantidade REAL NOT NULL,
+                    quantidade INTEGER NOT NULL,
                     valor_total REAL NOT NULL,
                     FOREIGN KEY(comprador_id) REFERENCES usuarios(id)
                 )''')
@@ -195,7 +195,7 @@ def init_db():
                     data_hora TEXT NOT NULL,
                     doador_id INTEGER,
                     item TEXT NOT NULL,
-                    quantidade REAL NOT NULL,
+                    quantidade INTEGER NOT NULL,
                     pontos_ganhos INTEGER NOT NULL,
                     FOREIGN KEY(doador_id) REFERENCES usuarios(id)
                 )''')
@@ -206,7 +206,7 @@ def init_db():
                     data_hora TEXT NOT NULL,
                     usuario_id INTEGER,
                     item TEXT NOT NULL,
-                    quantidade REAL NOT NULL,
+                    quantidade INTEGER NOT NULL,
                     motivo TEXT DEFAULT 'Consumo Interno',
                     FOREIGN KEY(usuario_id) REFERENCES usuarios(id)
                 )''')
@@ -372,7 +372,7 @@ if eh_convidado:
     st.divider()
     st.subheader("📦 Itens Disponíveis no Momento")
     conn = get_db_connection()
-    df_est = pd.read_sql_query("SELECT item as Item, categoria as Categoria, quantidade as Qtd, unidade as Unidade FROM estoque WHERE quantidade > 0", conn)
+    df_est = pd.read_sql_query("SELECT item as Item, categoria as Categoria, CAST(quantidade AS INTEGER) as Qtd, unidade as Unidade FROM estoque WHERE quantidade > 0", conn)
     conn.close()
     
     if not df_est.empty:
@@ -465,31 +465,30 @@ else:
         opcao = st.sidebar.radio("Navegação", opcoes_menu)
 
         # ----------------------------------------------------
-        # 1. DASHBOARD & MÉTRICAS (RATEIO DINÂMICO E RECALCULADO)
+        # 1. DASHBOARD & MÉTRICAS (ESTOQUE EM INTEIRO)
         # ----------------------------------------------------
         if opcao == "📊 Dashboard & Métricas":
             st.header("📊 Faturamento, Custos, Estoque e Rateio")
             
             conn = get_db_connection()
             total_investido = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
-            total_itens_estoque = pd.read_sql_query("SELECT SUM(quantidade) as total FROM estoque WHERE quantidade > 0", conn)["total"].fillna(0).iloc[0]
+            total_itens_estoque = int(pd.read_sql_query("SELECT SUM(quantidade) as total FROM estoque WHERE quantidade > 0", conn)["total"].fillna(0).iloc[0])
             total_doacoes = pd.read_sql_query("SELECT COUNT(*) as total FROM doacoes", conn)["total"].fillna(0).iloc[0]
             conn.close()
 
             m1, m2, m3 = st.columns(3)
             m1.metric("💰 Investimento Total (Compras)", f"R$ {total_investido:.2f}")
-            m2.metric("📦 Volume em Estoque (Un/Kg)", f"{total_itens_estoque:.1f}")
+            m2.metric("📦 Volume em Estoque (Un)", f"{total_itens_estoque}")
             m3.metric("🎁 Doações/Bônus Recebidos", f"{total_doacoes} registros")
 
             st.divider()
 
-            # --- SEÇÃO VISUAL DE ARRECADAÇÃO E RATEIO CORRIGIDO ---
+            # --- SEÇÃO VISUAL DE ARRECADAÇÃO E RATEIO ---
             st.subheader("👥 Gestão de Participantes - Status do Rateio")
 
             conn = get_db_connection()
             df_membros = pd.read_sql_query("SELECT id, nome, perfil FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)
             
-            # Soma exata dos valores realmente pagos
             total_arrecadado_real = pd.read_sql_query("SELECT SUM(valor_pago) as total FROM pagamentos", conn)["total"].fillna(0).iloc[0]
             df_pags = pd.read_sql_query("SELECT DISTINCT usuario_id FROM pagamentos", conn)
             conn.close()
@@ -504,11 +503,9 @@ else:
             qtd_pendentes = len(df_membros[df_membros["Status"] == "🔴 Pendente"])
             total_membros_qtd = len(df_membros)
 
-            # Cálculo dinâmico do saldo restante e da divisão entre os pendentes
             saldo_restante = max(0.0, total_investido - total_arrecadado_real)
             valor_devido_por_pendente = (saldo_restante / qtd_pendentes) if qtd_pendentes > 0 else 0.0
 
-            # Define o valor devido: 0 para quem pagou, e a fração restante para os pendentes
             df_membros["Valor Devido (R$)"] = df_membros["id"].apply(
                 lambda x: 0.0 if x in pagos_ids else valor_devido_por_pendente
             )
@@ -553,7 +550,7 @@ else:
 
             conn = get_db_connection()
             df_compras = pd.read_sql_query("SELECT item, SUM(valor_total) as custo_total FROM compras GROUP BY item", conn)
-            df_estoque = pd.read_sql_query("SELECT item, quantidade FROM estoque WHERE quantidade > 0", conn)
+            df_estoque = pd.read_sql_query("SELECT item, CAST(quantidade AS INTEGER) as quantidade FROM estoque WHERE quantidade > 0", conn)
             conn.close()
 
             c1, c2 = st.columns(2)
@@ -574,12 +571,12 @@ else:
                     st.info("Estoque vazio.")
 
         # ----------------------------------------------------
-        # 2. ESTOQUE GERAL
+        # 2. ESTOQUE GERAL (NÚMEROS INTEIROS)
         # ----------------------------------------------------
         elif opcao == "📦 Estoque Geral":
             st.header("📦 Controle do Estoque Atual")
             conn = get_db_connection()
-            df_estoque = pd.read_sql_query("SELECT item as Item, categoria as Categoria, quantidade as Qtd, unidade as Unidade FROM estoque WHERE quantidade > 0", conn)
+            df_estoque = pd.read_sql_query("SELECT item as Item, categoria as Categoria, CAST(quantidade AS INTEGER) as Qtd, unidade as Unidade FROM estoque WHERE quantidade > 0", conn)
             conn.close()
 
             if not df_estoque.empty:
@@ -588,14 +585,14 @@ else:
                 st.info("Não há itens com saldo disponível no estoque no momento.")
 
         # ----------------------------------------------------
-        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE
+        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE (QUANTIDADE INTEIRA)
         # ----------------------------------------------------
         elif opcao == "☕ Consumo / Baixa de Item":
             st.header("☕ Registrar Consumo / Baixa do Estoque")
             st.write("Abriu um pó de café, usou um pacote de açúcar ou consumiu algum item? Registre a baixa aqui.")
 
             conn = get_db_connection()
-            df_disponivel = pd.read_sql_query("SELECT item, quantidade, unidade FROM estoque WHERE quantidade > 0", conn)
+            df_disponivel = pd.read_sql_query("SELECT item, CAST(quantidade AS INTEGER) as quantidade, unidade FROM estoque WHERE quantidade > 0", conn)
             conn.close()
 
             if not df_disponivel.empty:
@@ -604,16 +601,16 @@ else:
 
                 with st.form("form_baixa_estoque"):
                     item_selecionado = st.selectbox("Selecione o Item Consumido:", list(dict_itens.keys()))
-                    qtd_disponivel = dict_itens[item_selecionado]
+                    qtd_disponivel = int(dict_itens[item_selecionado])
                     unidade_item = dict_unidades[item_selecionado]
 
                     st.info(f"Quantidade disponível em estoque: **{qtd_disponivel} {unidade_item}**")
 
                     qtd_consumida = st.number_input(
                         f"Quantidade Consumida ({unidade_item}):", 
-                        min_value=0.1, 
-                        max_value=float(qtd_disponivel), 
-                        step=0.5
+                        min_value=1, 
+                        max_value=qtd_disponivel, 
+                        step=1
                     )
                     motivo_consumo = st.text_input("Motivo / Observação:", value="Consumo Interno / Uso da Equipe")
 
@@ -623,18 +620,18 @@ else:
 
                         c.execute(
                             "INSERT INTO saidas (data_hora, usuario_id, item, quantidade, motivo) VALUES (?, ?, ?, ?, ?)",
-                            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_selecionado, qtd_consumida, motivo_consumo)
+                            (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_selecionado, int(qtd_consumida), motivo_consumo)
                         )
 
                         c.execute(
                             "UPDATE estoque SET quantidade = quantidade - ? WHERE item = ?", 
-                            (qtd_consumida, item_selecionado)
+                            (int(qtd_consumida), item_selecionado)
                         )
 
                         conn.commit()
                         conn.close()
 
-                        st.success(f"Baixa de {qtd_consumida} {unidade_item} de '{item_selecionado}' registrada com sucesso!")
+                        st.success(f"Baixa de {int(qtd_consumida)} {unidade_item} de '{item_selecionado}' registrada com sucesso!")
                         st.rerun()
             else:
                 st.warning("Não há itens disponíveis no estoque no momento.")
@@ -644,7 +641,7 @@ else:
             st.subheader("📋 Histórico de Consumo / Saídas Recentes")
             conn = get_db_connection()
             df_saidas = pd.read_sql_query("""
-                SELECT s.data_hora as 'Data/Hora', u.nome as 'Usuário', s.item as 'Item', s.quantidade as 'Qtd Retirada', s.motivo as 'Motivo'
+                SELECT s.data_hora as 'Data/Hora', u.nome as 'Usuário', s.item as 'Item', CAST(s.quantidade AS INTEGER) as 'Qtd Retirada', s.motivo as 'Motivo'
                 FROM saidas s
                 JOIN usuarios u ON s.usuario_id = u.id
                 ORDER BY s.id DESC LIMIT 15
@@ -657,7 +654,7 @@ else:
                 st.info("Nenhuma saída registrada até o momento.")
 
         # ----------------------------------------------------
-        # 4. INFORMAR COMPRA (COM CUSTO)
+        # 4. INFORMAR COMPRA (COM CUSTO - QUANTIDADE INTEIRA)
         # ----------------------------------------------------
         elif opcao == "🛒 Informar Compra (Com Custo)":
             st.header("🛒 Registrar Compra para o Café")
@@ -666,7 +663,7 @@ else:
             with st.form("form_compra"):
                 item_nome = st.text_input("Item (ex: Café Solúvel, Açúcar, Leite):")
                 categoria = st.selectbox("Categoria:", ["Insumos Básicos", "Matinais", "Descartáveis", "Snacks"])
-                qtd = st.number_input("Quantidade Comprada:", min_value=0.1, step=0.5)
+                qtd = st.number_input("Quantidade Comprada:", min_value=1, step=1)
                 unidade = st.selectbox("Unidade:", ["Unidades", "Kg", "Pacotes", "Caixas", "Litros"])
                 valor_total = st.number_input("Valor Total Pago (R$):", min_value=0.01, step=1.0)
                 
@@ -677,15 +674,15 @@ else:
                         conn = get_db_connection()
                         c = conn.cursor()
                         c.execute("INSERT INTO compras (data_hora, comprador_id, item, quantidade, valor_total) VALUES (?, ?, ?, ?, ?)",
-                                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, qtd, valor_total))
+                                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, int(qtd), valor_total))
                         
                         c.execute("SELECT quantidade FROM estoque WHERE item = ?", (item_nome,))
                         res = c.fetchone()
                         if res:
-                            c.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE item = ?", (qtd, item_nome))
+                            c.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE item = ?", (int(qtd), item_nome))
                         else:
                             c.execute("INSERT INTO estoque (item, categoria, quantidade, unidade) VALUES (?, ?, ?, ?)",
-                                      (item_nome, categoria, qtd, unidade))
+                                      (item_nome, categoria, int(qtd), unidade))
                         
                         conn.commit()
                         conn.close()
@@ -694,7 +691,7 @@ else:
                         st.error("Informe o nome do item.")
 
         # ----------------------------------------------------
-        # 5. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO)
+        # 5. REGISTRAR BÔNUS/DOAÇÃO (SEM CUSTO - QUANTIDADE INTEIRA)
         # ----------------------------------------------------
         elif opcao == "🎁 Registrar Bônus/Doação":
             st.header("🎁 Doar Item Extra (Pontua no Ranking)")
@@ -703,7 +700,7 @@ else:
             with st.form("form_doacao"):
                 item_nome = st.text_input("Item Doador (ex: Bolo caseiro, Pó de café extra):")
                 categoria = st.selectbox("Categoria:", ["Insumos Básicos", "Matinais", "Doces/Mimos", "Snacks"])
-                qtd = st.number_input("Quantidade Doada:", min_value=1.0, step=1.0)
+                qtd = st.number_input("Quantidade Doada:", min_value=1, step=1)
                 unidade = st.selectbox("Unidade:", ["Unidades", "Kg", "Pacotes", "Litros"])
                 
                 btn_salvar_doacao = st.form_submit_button("Registrar Doação")
@@ -714,17 +711,17 @@ else:
                         conn = get_db_connection()
                         c = conn.cursor()
                         c.execute("INSERT INTO doacoes (data_hora, doador_id, item, quantidade, pontos_ganhos) VALUES (?, ?, ?, ?, ?)",
-                                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, qtd, pontos))
+                                  (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_nome, int(qtd), pontos))
                         
                         c.execute("UPDATE usuarios SET pontos = pontos + ? WHERE id = ?", (pontos, user["id"]))
 
                         c.execute("SELECT quantidade FROM estoque WHERE item = ?", (item_nome,))
                         res = c.fetchone()
                         if res:
-                            c.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE item = ?", (qtd, item_nome))
+                            c.execute("UPDATE estoque SET quantidade = quantidade + ? WHERE item = ?", (int(qtd), item_nome))
                         else:
                             c.execute("INSERT INTO estoque (item, categoria, quantidade, unidade) VALUES (?, ?, ?, ?)",
-                                      (item_nome, categoria, qtd, unidade))
+                                      (item_nome, categoria, int(qtd), unidade))
 
                         conn.commit()
                         conn.close()
@@ -750,7 +747,7 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM DÉBITO ATUALIZADO)
+        # 7. CHAVE PIX & CONTRIBUIÇÃO
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
