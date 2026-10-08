@@ -12,7 +12,7 @@ import plotly.express as px
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
     page_title="Gestão Café Coletivo - NextGen Office", 
-    page_icon="☕", 
+    page_icon="", 
     layout="wide",
     initial_sidebar_state="expanded"
 )
