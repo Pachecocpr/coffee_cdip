@@ -747,7 +747,7 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 7. CHAVE PIX & CONTRIBUIÇÃO
+        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM CORREÇÃO DO MIN_VALUE)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
@@ -788,14 +788,25 @@ else:
             st.divider()
 
             st.subheader("📤 Registrar Pagamento / Anexar Comprovante")
+            
+            # Ajuste de segurança para o valor inicial do input
+            valor_sugerido_input = float(valor_rateio_dinamico) if valor_rateio_dinamico > 0 else 0.00
+
             with st.form("form_comprovante"):
-                valor_pago_input = st.number_input("Valor Pago (R$):", value=float(valor_rateio_dinamico), min_value=0.01, step=1.0)
+                valor_pago_input = st.number_input(
+                    "Valor Pago (R$):", 
+                    value=valor_sugerido_input, 
+                    min_value=0.00, 
+                    step=1.0
+                )
                 arquivo_enviado = st.file_uploader("Selecione o Comprovante (PNG, JPG ou PDF):", type=["png", "jpg", "jpeg", "pdf"])
                 
                 btn_enviar_comp = st.form_submit_button("📩 Enviar Comprovante de Pagamento")
 
                 if btn_enviar_comp:
-                    if arquivo_enviado is not None:
+                    if valor_pago_input <= 0:
+                        st.error("Informe um valor pago maior que zero.")
+                    elif arquivo_enviado is not None:
                         extensao = arquivo_enviado.name.split(".")[-1]
                         nome_arquivo_salvo = f"comp_user_{user['id']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extensao}"
                         caminho_completo = os.path.join(PASTA_COMPROVANTES, nome_arquivo_salvo)
@@ -823,7 +834,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 8. PAINEL MASTER / ADM (LIMPEZA DE BANCOS SELECIOMÁVEIS)
+        # 8. PAINEL MASTER / ADM
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -989,9 +1000,8 @@ else:
                                 file_name=row_pag["Arquivo"]
                             )
                 else:
-                    st.info("Nenhum comprovante enviado até o momento.")
+                    st.info("Nenum comprovante enviado até o momento.")
 
-            # --- ABA DE LIMPEZA DE BANCOS MULTI-SELEÇÃO ---
             with tab_limpeza:
                 st.subheader("🧹 Limpeza Seletiva de Dados (Apenas Usuário Master)")
                 st.write("Marque abaixo quais módulos / bancos de dados você deseja zerar completamente:")
@@ -1014,7 +1024,7 @@ else:
                     if not (limpar_compras or limpar_saidas or limpar_pagamentos or limpar_doacoes or limpar_estoque):
                         st.warning("Selecione ao menos uma opção para executar a limpeza.")
                     elif not confirmar_limpeza:
-                        st.error("Marque a caixa de confirmação para autorizar a limpeza.")
+                        st.error("Marque a caixa de seleção de confirmação acima para prosseguir.")
                     else:
                         conn = get_db_connection()
                         c = conn.cursor()
@@ -1030,7 +1040,6 @@ else:
 
                         if limpar_pagamentos:
                             c.execute("DELETE FROM pagamentos")
-                            # Apaga arquivos físicos de comprovantes
                             for arq in os.listdir(PASTA_COMPROVANTES):
                                 arq_path = os.path.join(PASTA_COMPROVANTES, arq)
                                 if os.path.isfile(arq_path):
