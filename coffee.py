@@ -460,7 +460,7 @@ else:
             
             conn = get_db_connection()
             total_investido = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
-            total_itens_estoque = pd.read_sql_query("SELECT SUM(quantidade) as total FROM estoque", conn)["total"].fillna(0).iloc[0]
+            total_itens_estoque = pd.read_sql_query("SELECT SUM(quantidade) as total FROM estoque WHERE quantidade > 0", conn)["total"].fillna(0).iloc[0]
             total_doacoes = pd.read_sql_query("SELECT COUNT(*) as total FROM doacoes", conn)["total"].fillna(0).iloc[0]
             conn.close()
 
@@ -473,7 +473,7 @@ else:
 
             conn = get_db_connection()
             df_compras = pd.read_sql_query("SELECT item, SUM(valor_total) as custo_total FROM compras GROUP BY item", conn)
-            df_estoque = pd.read_sql_query("SELECT item, quantidade FROM estoque", conn)
+            df_estoque = pd.read_sql_query("SELECT item, quantidade FROM estoque WHERE quantidade > 0", conn)
             conn.close()
 
             c1, c2 = st.columns(2)
@@ -486,7 +486,7 @@ else:
                     st.info("Sem dados de compras.")
 
             with c2:
-                st.subheader("Nível do Estoque")
+                st.subheader("Nível do Estoque Disponível")
                 if not df_estoque.empty:
                     fig_est = px.bar(df_estoque, x="item", y="quantidade", color="quantidade", template="plotly_dark")
                     st.plotly_chart(fig_est, use_container_width=True)
@@ -494,18 +494,21 @@ else:
                     st.info("Estoque vazio.")
 
         # ----------------------------------------------------
-        # 2. ESTOQUE GERAL
+        # 2. ESTOQUE GERAL (EXIBE APENAS ITENS COM QTD > 0)
         # ----------------------------------------------------
         elif opcao == "📦 Estoque Geral":
             st.header("📦 Controle do Estoque Atual")
             conn = get_db_connection()
-            df_estoque = pd.read_sql_query("SELECT item as Item, categoria as Categoria, quantidade as Qtd, unidade as Unidade FROM estoque", conn)
+            df_estoque = pd.read_sql_query("SELECT item as Item, categoria as Categoria, quantidade as Qtd, unidade as Unidade FROM estoque WHERE quantidade > 0", conn)
             conn.close()
 
-            st.dataframe(df_estoque, use_container_width=True)
+            if not df_estoque.empty:
+                st.dataframe(df_estoque, use_container_width=True)
+            else:
+                st.info("Não há itens com saldo disponível no estoque no momento.")
 
         # ----------------------------------------------------
-        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE (NOVO)
+        # 3. CONSUMO / BAIXA DE ITEM NO ESTOQUE
         # ----------------------------------------------------
         elif opcao == "☕ Consumo / Baixa de Item":
             st.header("☕ Registrar Consumo / Baixa do Estoque")
@@ -538,13 +541,11 @@ else:
                         conn = get_db_connection()
                         c = conn.cursor()
 
-                        # 1. Registrar a saída no histórico
                         c.execute(
                             "INSERT INTO saidas (data_hora, usuario_id, item, quantidade, motivo) VALUES (?, ?, ?, ?, ?)",
                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user["id"], item_selecionado, qtd_consumida, motivo_consumo)
                         )
 
-                        # 2. Descontar da quantidade do estoque
                         c.execute(
                             "UPDATE estoque SET quantidade = quantidade - ? WHERE item = ?", 
                             (qtd_consumida, item_selecionado)
@@ -560,7 +561,6 @@ else:
 
             st.divider()
 
-            # --- HISTÓRICO DE CONSUMO ---
             st.subheader("📋 Histórico de Consumo / Saídas Recentes")
             conn = get_db_connection()
             df_saidas = pd.read_sql_query("""
@@ -738,7 +738,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 8. PAINEL MASTER / ADM (INCLUI RATEIO E LIMPEZA DE ESTOQUE/DOAÇÕES)
+        # 8. PAINEL MASTER / ADM (COM DELETE DIRETO NO LIMPEZA DE ESTOQUE)
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -901,7 +901,7 @@ else:
                 else:
                     st.info("Nenhum comprovante enviado até o momento.")
 
-            # --- ABA DE LIMPEZA DE DADOS ---
+            # --- ABA DE LIMPEZA DE DADOS (COM DELETE NO ESTOQUE) ---
             with tab_limpeza:
                 st.subheader("🧹 Limpeza de Históricos e Controle de Estoque")
                 st.write("Escolha o tipo de limpeza que deseja realizar no sistema:")
@@ -910,8 +910,8 @@ else:
                     "Selecione o escopo da limpeza:",
                     [
                         "🎁 Apenas Doações e Ranking (Zera pontos e histórico de doações)",
-                        "📦 Apenas Estoque Atual (Zera as quantidades do estoque)",
-                        "💥 Limpeza Completa (Zera Doações, Ranking e Estoque)"
+                        "📦 Apenas Estoque Atual (Remove todos os itens do estoque)",
+                        "💥 Limpeza Completa (Apaga Doações, Ranking e Itens do Estoque)"
                     ]
                 )
 
@@ -927,21 +927,21 @@ else:
                             c.execute("UPDATE usuarios SET pontos = 0")
                             conn.commit()
                             conn.close()
-                            st.success("O histórico de doações foi apagado e o ranking de pontos foi zerado com sucesso!")
+                            st.success("O histórico de doações foi apagado e o ranking de pontos foi zerado!")
 
                         elif "Apenas Estoque" in tipo_limpeza:
-                            c.execute("UPDATE estoque SET quantidade = 0")
+                            c.execute("DELETE FROM estoque")
                             conn.commit()
                             conn.close()
-                            st.success("A quantidade de todos os itens do estoque foi zerada!")
+                            st.success("Todos os itens foram totalmente removidos da tabela de estoque!")
 
                         elif "Limpeza Completa" in tipo_limpeza:
                             c.execute("DELETE FROM doacoes")
                             c.execute("UPDATE usuarios SET pontos = 0")
-                            c.execute("UPDATE estoque SET quantidade = 0")
+                            c.execute("DELETE FROM estoque")
                             conn.commit()
                             conn.close()
-                            st.success("Limpeza completa realizada! Estoque zerado, histórico de doações apagado e ranking reiniciado.")
+                            st.success("Limpeza completa realizada! Estoque apagado, histórico de doações removido e ranking reiniciado.")
 
                         st.rerun()
                     else:
