@@ -33,7 +33,7 @@ def obter_bg_css():
 
 bg_url = obter_bg_css()
 
-# --- APLICAÇÃO DE CSS FUTURISTA COM PLANO DE FUNDO (DARK NEON TECH) ---
+# --- APLICAÇÃO DE CSS FUTURISTA COM IMAGEM DE FUNDO VÍVIDA ---
 st.markdown(f"""
     <style>
     #MainMenu {{visibility: hidden;}}
@@ -46,9 +46,9 @@ st.markdown(f"""
         border-radius: 8px !important;
     }}
 
-    /* PLANO DE FUNDO COM OVERLAY ESCURO PARA FACILITAR LEITURA */
+    /* PLANO DE FUNDO VÍVIDO COM LEVE OVERLAY PARA DESTAR A IMAGEM */
     .stApp {{
-        background: linear-gradient(rgba(10, 14, 23, 0.85), rgba(22, 31, 51, 0.90)), url('{bg_url}') !important;
+        background: linear-gradient(rgba(10, 14, 23, 0.25), rgba(15, 23, 42, 0.40)), url('{bg_url}') !important;
         background-size: cover !important;
         background-position: center !important;
         background-attachment: fixed !important;
@@ -56,11 +56,20 @@ st.markdown(f"""
         color: #E2E8F0 !important;
     }}
 
-    /* CARDS E FORMULÁRIOS COM EFEITO VIDRO (FROSTED GLASS) */
-    div[data-testid="stForm"], div[data-testid="stExpander"], div.stContainer {{
+    /* FORMULÁRIO COMPACTO E ELEGANTE (GLASSMORPHISM) */
+    div[data-testid="stForm"] {{
+        background: rgba(10, 14, 23, 0.88) !important;
+        border-radius: 16px !important;
+        padding: 18px 22px !important;
+        border: 1px solid rgba(0, 240, 255, 0.4) !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.25) !important;
+        backdrop-filter: blur(10px) !important;
+    }}
+
+    div[data-testid="stExpander"], div.stContainer {{
         background: rgba(15, 23, 42, 0.85) !important;
         border-radius: 16px !important;
-        padding: 24px !important;
+        padding: 20px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
         box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.15) !important;
         backdrop-filter: blur(12px) !important;
@@ -68,18 +77,28 @@ st.markdown(f"""
 
     h1, h2, h3 {{
         color: #00F0FF !important;
-        text-shadow: 0 0 10px rgba(0, 240, 255, 0.4) !important;
+        text-shadow: 0 0 12px rgba(0, 240, 255, 0.6) !important;
         font-weight: 700 !important;
+    }}
+
+    /* AJUSTE PARA TÍTULOS MENORES NO LOGIN COMPACTO */
+    .login-title {{
+        text-align: center;
+        color: #00F0FF;
+        font-size: 26px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
     }}
 
     div[data-testid="stFormSubmitButton"] > button, .stButton > button {{
         background: linear-gradient(90deg, #00F0FF 0%, #7000FF 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
-        font-size: 15px !important;
+        font-size: 14px !important;
         border: none !important;
-        border-radius: 10px !important;
-        padding: 10px 20px !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
     }}
@@ -295,55 +314,59 @@ else:
     if "usuario_logado" not in st.session_state:
         st.session_state["usuario_logado"] = None
 
-    # --- TELA DE LOGIN & CADASTRO ---
+    # --- TELA DE LOGIN & CADASTRO COMPACTA E CENTRALIZADA ---
     if not st.session_state["usuario_logado"]:
-        st.title("☕ Gestão do Café Coletivo")
-        
-        tab_login, tab_cadastro = st.tabs(["🔒 Entrar", "📝 Aderir ao Café (Cadastrar)"])
+        # Usa colunas para centralizar e diminuir o tamanho da caixa
+        _, col_login_box, _ = st.columns([1, 1.2, 1])
 
-        with tab_login:
-            with st.form("form_login"):
-                login_input = st.text_input("Login:")
-                senha_input = st.text_input("Senha:", type="password")
-                btn_entrar = st.form_submit_button("Acessar Painel")
+        with col_login_box:
+            st.markdown('<div class="login-title">☕ Café Coletivo</div>', unsafe_allow_html=True)
+            
+            tab_login, tab_cadastro = st.tabs(["🔒 Entrar", "📝 Aderir ao Café"])
 
-                if btn_entrar:
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("SELECT id, nome, email, perfil, senha FROM usuarios WHERE (email = ? OR nome = ?) AND ativo = 1", (login_input, login_input))
-                    user = c.fetchone()
-                    conn.close()
+            with tab_login:
+                with st.form("form_login"):
+                    login_input = st.text_input("Login:")
+                    senha_input = st.text_input("Senha:", type="password")
+                    btn_entrar = st.form_submit_button("Acessar Painel")
 
-                    if user and user[4] == hash_senha(senha_input):
-                        st.session_state["usuario_logado"] = {
-                            "id": user[0], "nome": user[1], "email": user[2], "perfil": user[3]
-                        }
-                        st.success(f"Bem-vindo(a), {user[1]}!")
-                        st.rerun()
-                    else:
-                        st.error("Credenciais inválidas ou conta inativa.")
+                    if btn_entrar:
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        c.execute("SELECT id, nome, email, perfil, senha FROM usuarios WHERE (email = ? OR nome = ?) AND ativo = 1", (login_input, login_input))
+                        user = c.fetchone()
+                        conn.close()
 
-        with tab_cadastro:
-            with st.form("form_cadastro"):
-                nome_cad = st.text_input("Nome Completo / Usuário de Login:")
-                email_cad = st.text_input("E-mail Corporativo:")
-                senha_cad = st.text_input("Senha de Acesso:", type="password")
-                btn_cadastrar = st.form_submit_button("Confirmar Adesão")
+                        if user and user[4] == hash_senha(senha_input):
+                            st.session_state["usuario_logado"] = {
+                                "id": user[0], "nome": user[1], "email": user[2], "perfil": user[3]
+                            }
+                            st.success(f"Bem-vindo(a), {user[1]}!")
+                            st.rerun()
+                        else:
+                            st.error("Credenciais inválidas ou conta inativa.")
 
-                if btn_cadastrar:
-                    if nome_cad and email_cad and senha_cad:
-                        try:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            c.execute("INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, 'Usuário')",
-                                      (nome_cad, email_cad, hash_senha(senha_cad)))
-                            conn.commit()
-                            conn.close()
-                            st.success("Cadastro realizado com sucesso! Vá para a aba 'Entrar' para acessar.")
-                        except sqlite3.IntegrityError:
-                            st.error("E-mail já cadastrado no sistema.")
-                    else:
-                        st.warning("Preencha todos os campos do formulário.")
+            with tab_cadastro:
+                with st.form("form_cadastro"):
+                    nome_cad = st.text_input("Nome Completo / Login:")
+                    email_cad = st.text_input("E-mail Corporativo:")
+                    senha_cad = st.text_input("Senha de Acesso:", type="password")
+                    btn_cadastrar = st.form_submit_button("Confirmar Adesão")
+
+                    if btn_cadastrar:
+                        if nome_cad and email_cad and senha_cad:
+                            try:
+                                conn = get_db_connection()
+                                c = conn.cursor()
+                                c.execute("INSERT INTO usuarios (nome, email, senha, perfil) VALUES (?, ?, ?, 'Usuário')",
+                                          (nome_cad, email_cad, hash_senha(senha_cad)))
+                                conn.commit()
+                                conn.close()
+                                st.success("Cadastro realizado! Acesse a aba 'Entrar'.")
+                            except sqlite3.IntegrityError:
+                                st.error("E-mail já cadastrado.")
+                        else:
+                            st.warning("Preencha todos os campos.")
 
     # --- PAINEL DO USUÁRIO / MASTER ---
     else:
