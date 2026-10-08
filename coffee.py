@@ -94,12 +94,25 @@ st.markdown("""
         border-radius: 8px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
     }
+
+    img {
+        border-radius: 12px !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.2) !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
+# --- CONFIGURAÇÃO DE BANCO E IMAGEM DO GITHUB ---
 DB_FILE = "cafe_coletivo.db"
 ARQUIVO_CONFIG = "config_pix.json"
-URL_PIX_LOGO = "https://raw.githubusercontent.com/bacen/pix-dict-api/master/docs/logo-pix.png"
+NOME_IMAGEM_LOCAL = "capa.jpg"
+URL_RESERVA_CAPA = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1200&auto=format&fit=crop"
+
+def obter_imagem_capa():
+    """Retorna a imagem local do GitHub se existir, caso contrário retorna URL reserva"""
+    if os.path.exists(NOME_IMAGEM_LOCAL):
+        return NOME_IMAGEM_LOCAL
+    return URL_RESERVA_CAPA
 
 # --- ESTRUTURA DO BANCO DE DADOS (SQLITE) ---
 def init_db():
@@ -228,6 +241,7 @@ def obter_url_qr_code(texto):
 # --- INICIALIZAÇÃO ---
 init_db()
 config_pix = carregar_config()
+imagem_capa = obter_imagem_capa()
 
 try:
     eh_convidado = st.query_params.get("modo") == "convidado"
@@ -238,6 +252,8 @@ except Exception:
 # 📱 VISÃO CONVIDADO (LINK EXTERNO / QR CODE)
 # ==========================================
 if eh_convidado:
+    st.image(imagem_capa, use_container_width=True, caption="Café Especial Coletivo - NextGen Office")
+
     st.title("☕ Café Coletivo - Acesso Convidado")
     st.write("Seja bem-vindo! Caso deseje contribuir espontaneamente com o café do escritório, utilize a chave Pix abaixo.")
     
@@ -273,19 +289,22 @@ else:
 
     # --- TELA DE LOGIN & CADASTRO ---
     if not st.session_state["usuario_logado"]:
+        st.image(imagem_capa, use_container_width=True)
         st.title("☕ Gestão do Café Coletivo")
+        
         tab_login, tab_cadastro = st.tabs(["🔒 Entrar", "📝 Aderir ao Café (Cadastrar)"])
 
         with tab_login:
             with st.form("form_login"):
-                email_input = st.text_input("E-mail:")
+                login_input = st.text_input("Login:")
                 senha_input = st.text_input("Senha:", type="password")
                 btn_entrar = st.form_submit_button("Acessar Painel")
 
                 if btn_entrar:
                     conn = get_db_connection()
                     c = conn.cursor()
-                    c.execute("SELECT id, nome, email, perfil, senha FROM usuarios WHERE email = ? AND ativo = 1", (email_input,))
+                    # Permite login por e-mail ou nome cadastrado
+                    c.execute("SELECT id, nome, email, perfil, senha FROM usuarios WHERE (email = ? OR nome = ?) AND ativo = 1", (login_input, login_input))
                     user = c.fetchone()
                     conn.close()
 
@@ -300,7 +319,7 @@ else:
 
         with tab_cadastro:
             with st.form("form_cadastro"):
-                nome_cad = st.text_input("Nome Completo:")
+                nome_cad = st.text_input("Nome Completo / Usuário de Login:")
                 email_cad = st.text_input("E-mail Corporativo:")
                 senha_cad = st.text_input("Senha de Acesso:", type="password")
                 btn_cadastrar = st.form_submit_button("Confirmar Adesão")
@@ -320,11 +339,12 @@ else:
                     else:
                         st.warning("Preencha todos os campos do formulário.")
 
-    # --- PAINEL DO USUARIO / MASTER ---
+    # --- PAINEL DO USUÁRIO / MASTER ---
     else:
         user = st.session_state["usuario_logado"]
         
         # Sidebar Menu
+        st.sidebar.image(imagem_capa, use_container_width=True)
         st.sidebar.title("☕ Café Coletivo")
         st.sidebar.write(f"👤 **{user['nome']}**")
         st.sidebar.caption(f"Perfil: {user['perfil']}")
@@ -449,7 +469,7 @@ else:
 
                 if btn_salvar_doacao:
                     if item_nome:
-                        pontos = int(qtd * 10) # Regra de negócio: 10 pontos por unidade doada
+                        pontos = int(qtd * 10)
                         conn = get_db_connection()
                         c = conn.cursor()
                         
@@ -495,8 +515,8 @@ else:
         # ----------------------------------------------------
         # 6. CHAVE PIX & CONTRIBUIÇÃO
         # ----------------------------------------------------
-        elif opcao == "💳 Chave Pix & Contribuição":
-            st.header("💳 Chave Pix Oficial do Café Coletivo")
+        elif opcao == "Chave Pix & Contribuição":
+            st.header("Chave Pix Oficial do Café Coletivo")
             payload_pix = gerar_payload_pix(config_pix["chave_pix"], config_pix["nome_recebedor"], config_pix["cidade_recebedor"])
             url_qr = obter_url_qr_code(payload_pix)
 
@@ -518,10 +538,10 @@ else:
         # ----------------------------------------------------
         # 7. PAINEL MASTER / ADM
         # ----------------------------------------------------
-        elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
-            st.header("🛠️ Administração do Sistema e Perfis")
+        elif opcao == "Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
+            st.header("Administração do Sistema e Perfis")
 
-            tab_users, tab_pix_cfg = st.tabs(["👥 Controle de Usuários", "⚙️ Configurações Pix"])
+            tab_users, tab_pix_cfg = st.tabs(["Controle de Usuários", "⚙️ Configurações Pix"])
 
             with tab_users:
                 conn = get_db_connection()
