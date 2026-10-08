@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime
 import json
 import os
+import base64
 import urllib.parse
 import plotly.express as px
 
@@ -16,41 +17,62 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- APLICAÇÃO DE CSS FUTURISTA (DARK NEON TECH) ---
-st.markdown("""
-    <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+# --- CONFIGURAÇÃO DE BANCO E IMAGEM DO GITHUB ---
+DB_FILE = "cafe_coletivo.db"
+ARQUIVO_CONFIG = "config_pix.json"
+NOME_IMAGEM_LOCAL = "capa.jpg"
+URL_RESERVA_CAPA = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1200&auto=format&fit=crop"
 
-    button[data-testid="stHeaderIconButton"] {
+def obter_bg_css():
+    """Converte a imagem local para Base64 para usar no CSS de fundo ou usa a URL reserva."""
+    if os.path.exists(NOME_IMAGEM_LOCAL):
+        with open(NOME_IMAGEM_LOCAL, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        return f"data:image/jpeg;base64,{encoded_string}"
+    return URL_RESERVA_CAPA
+
+bg_url = obter_bg_css()
+
+# --- APLICAÇÃO DE CSS FUTURISTA COM PLANO DE FUNDO (DARK NEON TECH) ---
+st.markdown(f"""
+    <style>
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+
+    button[data-testid="stHeaderIconButton"] {{
         color: #00F0FF !important;
         background-color: rgba(0, 240, 255, 0.1) !important;
         border: 1px solid #00F0FF !important;
         border-radius: 8px !important;
-    }
+    }}
 
-    .stApp {
-        background: linear-gradient(135deg, #0A0E17 0%, #161F33 100%) !important;
+    /* PLANO DE FUNDO COM OVERLAY ESCURO PARA FACILITAR LEITURA */
+    .stApp {{
+        background: linear-gradient(rgba(10, 14, 23, 0.85), rgba(22, 31, 51, 0.90)), url('{bg_url}') !important;
+        background-size: cover !important;
+        background-position: center !important;
+        background-attachment: fixed !important;
         font-family: 'Segoe UI', Roboto, sans-serif !important;
         color: #E2E8F0 !important;
-    }
+    }}
 
-    div[data-testid="stForm"], div[data-testid="stExpander"], div.stContainer {
-        background: rgba(15, 23, 42, 0.75) !important;
+    /* CARDS E FORMULÁRIOS COM EFEITO VIDRO (FROSTED GLASS) */
+    div[data-testid="stForm"], div[data-testid="stExpander"], div.stContainer {{
+        background: rgba(15, 23, 42, 0.85) !important;
         border-radius: 16px !important;
         padding: 24px !important;
-        border: 1px solid rgba(0, 240, 255, 0.2) !important;
-        box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.1) !important;
+        border: 1px solid rgba(0, 240, 255, 0.3) !important;
+        box-shadow: 0 8px 32px 0 rgba(0, 240, 255, 0.15) !important;
         backdrop-filter: blur(12px) !important;
-    }
+    }}
 
-    h1, h2, h3 {
+    h1, h2, h3 {{
         color: #00F0FF !important;
         text-shadow: 0 0 10px rgba(0, 240, 255, 0.4) !important;
         font-weight: 700 !important;
-    }
+    }}
 
-    div[data-testid="stFormSubmitButton"] > button, .stButton > button {
+    div[data-testid="stFormSubmitButton"] > button, .stButton > button {{
         background: linear-gradient(90deg, #00F0FF 0%, #7000FF 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
@@ -60,59 +82,48 @@ st.markdown("""
         padding: 10px 20px !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
-    }
+    }}
 
-    div[data-testid="stFormSubmitButton"] > button:hover, .stButton > button:hover {
+    div[data-testid="stFormSubmitButton"] > button:hover, .stButton > button:hover {{
         transform: scale(1.02) !important;
         box-shadow: 0 0 25px rgba(0, 240, 255, 0.7) !important;
-    }
+    }}
 
-    section[data-testid="stSidebar"] {
-        background-color: #0D1117 !important;
+    section[data-testid="stSidebar"] {{
+        background-color: rgba(13, 17, 23, 0.92) !important;
         border-right: 1px solid rgba(0, 240, 255, 0.2) !important;
-    }
+        backdrop-filter: blur(10px) !important;
+    }}
 
     section[data-testid="stSidebar"] *, 
     section[data-testid="stSidebar"] label,
     section[data-testid="stSidebar"] p,
-    section[data-testid="stSidebar"] span {
+    section[data-testid="stSidebar"] span {{
         color: #CBD5E1 !important;
         font-weight: 600 !important;
-    }
+    }}
 
-    div[data-testid="stMetric"] {
-        background: rgba(15, 23, 42, 0.8) !important;
+    div[data-testid="stMetric"] {{
+        background: rgba(15, 23, 42, 0.85) !important;
         border-radius: 12px !important;
         padding: 16px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
         box-shadow: 0 0 12px rgba(0, 240, 255, 0.15) !important;
-    }
+    }}
 
-    .stTextInput input, .stSelectbox select, .stNumberInput input {
+    .stTextInput input, .stSelectbox select, .stNumberInput input {{
         background-color: #090D16 !important;
         color: #00F0FF !important;
         border-radius: 8px !important;
         border: 1px solid rgba(0, 240, 255, 0.3) !important;
-    }
+    }}
 
-    img {
+    img {{
         border-radius: 12px !important;
         box-shadow: 0 0 15px rgba(0, 240, 255, 0.2) !important;
-    }
+    }}
     </style>
 """, unsafe_allow_html=True)
-
-# --- CONFIGURAÇÃO DE BANCO E IMAGEM DO GITHUB ---
-DB_FILE = "cafe_coletivo.db"
-ARQUIVO_CONFIG = "config_pix.json"
-NOME_IMAGEM_LOCAL = "capa.jpg"
-URL_RESERVA_CAPA = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?q=80&w=1200&auto=format&fit=crop"
-
-def obter_imagem_capa():
-    """Retorna a imagem local do GitHub se existir, caso contrário retorna URL reserva"""
-    if os.path.exists(NOME_IMAGEM_LOCAL):
-        return NOME_IMAGEM_LOCAL
-    return URL_RESERVA_CAPA
 
 # --- ESTRUTURA DO BANCO DE DADOS (SQLITE) ---
 def init_db():
@@ -241,7 +252,6 @@ def obter_url_qr_code(texto):
 # --- INICIALIZAÇÃO ---
 init_db()
 config_pix = carregar_config()
-imagem_capa = obter_imagem_capa()
 
 try:
     eh_convidado = st.query_params.get("modo") == "convidado"
@@ -252,8 +262,6 @@ except Exception:
 # 📱 VISÃO CONVIDADO (LINK EXTERNO / QR CODE)
 # ==========================================
 if eh_convidado:
-    st.image(imagem_capa, use_container_width=True, caption="Café Especial Coletivo - NextGen Office")
-
     st.title("☕ Café Coletivo - Acesso Convidado")
     st.write("Seja bem-vindo! Caso deseje contribuir espontaneamente com o café do escritório, utilize a chave Pix abaixo.")
     
@@ -289,7 +297,6 @@ else:
 
     # --- TELA DE LOGIN & CADASTRO ---
     if not st.session_state["usuario_logado"]:
-        st.image(imagem_capa, use_container_width=True)
         st.title("☕ Gestão do Café Coletivo")
         
         tab_login, tab_cadastro = st.tabs(["🔒 Entrar", "📝 Aderir ao Café (Cadastrar)"])
@@ -303,7 +310,6 @@ else:
                 if btn_entrar:
                     conn = get_db_connection()
                     c = conn.cursor()
-                    # Permite login por e-mail ou nome cadastrado
                     c.execute("SELECT id, nome, email, perfil, senha FROM usuarios WHERE (email = ? OR nome = ?) AND ativo = 1", (login_input, login_input))
                     user = c.fetchone()
                     conn.close()
@@ -344,7 +350,6 @@ else:
         user = st.session_state["usuario_logado"]
         
         # Sidebar Menu
-        st.sidebar.image(imagem_capa, use_container_width=True)
         st.sidebar.title("☕ Café Coletivo")
         st.sidebar.write(f"👤 **{user['nome']}**")
         st.sidebar.caption(f"Perfil: {user['perfil']}")
@@ -515,8 +520,8 @@ else:
         # ----------------------------------------------------
         # 6. CHAVE PIX & CONTRIBUIÇÃO
         # ----------------------------------------------------
-        elif opcao == "Chave Pix & Contribuição":
-            st.header("Chave Pix Oficial do Café Coletivo")
+        elif opcao == "💳 Chave Pix & Contribuição":
+            st.header("💳 Chave Pix Oficial do Café Coletivo")
             payload_pix = gerar_payload_pix(config_pix["chave_pix"], config_pix["nome_recebedor"], config_pix["cidade_recebedor"])
             url_qr = obter_url_qr_code(payload_pix)
 
@@ -538,10 +543,10 @@ else:
         # ----------------------------------------------------
         # 7. PAINEL MASTER / ADM
         # ----------------------------------------------------
-        elif opcao == "Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
-            st.header("Administração do Sistema e Perfis")
+        elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
+            st.header("🛠️ Administração do Sistema e Perfis")
 
-            tab_users, tab_pix_cfg = st.tabs(["Controle de Usuários", "⚙️ Configurações Pix"])
+            tab_users, tab_pix_cfg = st.tabs(["👥 Controle de Usuários", "⚙️ Configurações Pix"])
 
             with tab_users:
                 conn = get_db_connection()
