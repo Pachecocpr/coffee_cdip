@@ -465,7 +465,7 @@ else:
         opcao = st.sidebar.radio("Navegação", opcoes_menu)
 
         # ----------------------------------------------------
-        # 1. DASHBOARD & MÉTRICAS (COM AJUSTE DO VALOR DEVIDO = 0 PARA PAGOS)
+        # 1. DASHBOARD & MÉTRICAS (RATEIO DINÂMICO E RECALCULADO)
         # ----------------------------------------------------
         if opcao == "📊 Dashboard & Métricas":
             st.header("📊 Faturamento, Custos, Estoque e Rateio")
@@ -483,34 +483,46 @@ else:
 
             st.divider()
 
-            # --- SEÇÃO VISUAL DE ARRECADAÇÃO E RATEIO ---
+            # --- SEÇÃO VISUAL DE ARRECADAÇÃO E RATEIO CORRIGIDO ---
             st.subheader("👥 Gestão de Participantes - Status do Rateio")
 
             conn = get_db_connection()
             df_membros = pd.read_sql_query("SELECT id, nome, perfil FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário')", conn)
+            
+            # Soma exata dos valores realmente pagos
+            total_arrecadado_real = pd.read_sql_query("SELECT SUM(valor_pago) as total FROM pagamentos", conn)["total"].fillna(0).iloc[0]
             df_pags = pd.read_sql_query("SELECT DISTINCT usuario_id FROM pagamentos", conn)
             conn.close()
 
-            valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
             data_venc_br = formatar_data_br(config_pix.get("data_vencimento_rateio", ""))
 
             pagos_ids = set(df_pags["usuario_id"].tolist())
             
             df_membros["Status"] = df_membros["id"].apply(lambda x: "🟢 Pago" if x in pagos_ids else "🔴 Pendente")
-            # Se pagou, o valor devido fica 0. Caso contrário, assume o valor do rateio
-            df_membros["Valor Devido (R$)"] = df_membros["id"].apply(lambda x: 0.0 if x in pagos_ids else valor_rateio)
 
             qtd_pagos = len(df_membros[df_membros["Status"] == "🟢 Pago"])
             qtd_pendentes = len(df_membros[df_membros["Status"] == "🔴 Pendente"])
             total_membros_qtd = len(df_membros)
-            total_arrecadado = qtd_pagos * valor_rateio
+
+            # Cálculo dinâmico do saldo restante e da divisão entre os pendentes
+            saldo_restante = max(0.0, total_investido - total_arrecadado_real)
+            valor_devido_por_pendente = (saldo_restante / qtd_pendentes) if qtd_pendentes > 0 else 0.0
+
+            # Define o valor devido: 0 para quem pagou, e a fração restante para os pendentes
+            df_membros["Valor Devido (R$)"] = df_membros["id"].apply(
+                lambda x: 0.0 if x in pagos_ids else valor_devido_por_pendente
+            )
 
             c_part1, c_part2 = st.columns([1, 1.2])
 
             with c_part1:
-                st.write(f"**Data Vencimento:** `{data_venc_br}` | **Valor por Membro:** `R$ {valor_rateio:.2f}`")
-                st.metric("Total Arrecadado", f"R$ {total_arrecadado:.2f}", f"{qtd_pagos}/{total_membros_qtd} Pagos")
-                
+                st.write(f"**Data Vencimento:** `{data_venc_br}`")
+                st.metric("Total Arrecadado (Real)", f"R$ {total_arrecadado_real:.2f}", f"{qtd_pagos}/{total_membros_qtd} Pagos")
+                if qtd_pendentes > 0:
+                    st.caption(f"💡 Falta arrecadar: **R$ {saldo_restante:.2f}** (Dividido em R$ {valor_devido_por_pendente:.2f} p/ cada pendente)")
+                else:
+                    st.caption("🎉 Rateio 100% quitado por todos os membros!")
+
                 df_graf_rateio = pd.DataFrame({
                     "Status": ["Pago", "Pendente"],
                     "Quantidade": [qtd_pagos, qtd_pendentes]
@@ -738,16 +750,23 @@ else:
                 st.info("Nenhuma doação registrada ainda. Seja o primeiro a pontuar!")
 
         # ----------------------------------------------------
-        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM UPLOAD DE COMPROVANTE)
+        # 7. CHAVE PIX & CONTRIBUIÇÃO (COM DÉBITO ATUALIZADO)
         # ----------------------------------------------------
         elif opcao == "💳 Chave Pix & Contribuição":
             st.header("💳 Chave Pix Oficial e Rateio do Café Coletivo")
 
-            valor_rateio = config_pix.get("valor_rateio_por_pessoa", 0.0)
+            conn = get_db_connection()
+            total_compras = pd.read_sql_query("SELECT SUM(valor_total) as total FROM compras", conn)["total"].fillna(0).iloc[0]
+            total_arrecadado_real = pd.read_sql_query("SELECT SUM(valor_pago) as total FROM pagamentos", conn)["total"].fillna(0).iloc[0]
+            df_pendentes_cnt = pd.read_sql_query("SELECT COUNT(*) as total FROM usuarios WHERE ativo = 1 AND perfil IN ('Master', 'ADM', 'Usuário') AND id NOT IN (SELECT DISTINCT usuario_id FROM pagamentos)", conn)["total"].fillna(1).iloc[0]
+            conn.close()
+
             data_venc_br = formatar_data_br(config_pix.get("data_vencimento_rateio", ""))
+            saldo_restante = max(0.0, total_compras - total_arrecadado_real)
+            valor_rateio_dinamico = (saldo_restante / df_pendentes_cnt) if df_pendentes_cnt > 0 else 0.0
 
             col_r1, col_r2 = st.columns(2)
-            col_r1.metric("💰 Valor do Rateio por Membro", f"R$ {valor_rateio:.2f}")
+            col_r1.metric("💰 Valor Devido Atual por Pendente", f"R$ {valor_rateio_dinamico:.2f}")
             col_r2.metric("📅 Data Limite de Pagamento", data_venc_br)
 
             st.divider()
@@ -756,7 +775,7 @@ else:
                 chave=config_pix["chave_pix"], 
                 nome=config_pix.get("nome_recebedor", "CAFE COLETIVO"), 
                 cidade=config_pix.get("cidade_recebedor", "BELO HORIZONTE"),
-                valor=valor_rateio
+                valor=valor_rateio_dinamico
             )
             url_qr = obter_url_qr_code(payload_pix)
 
@@ -773,7 +792,7 @@ else:
 
             st.subheader("📤 Registrar Pagamento / Anexar Comprovante")
             with st.form("form_comprovante"):
-                valor_pago_input = st.number_input("Valor Pago (R$):", value=float(valor_rateio), min_value=0.01, step=1.0)
+                valor_pago_input = st.number_input("Valor Pago (R$):", value=float(valor_rateio_dinamico), min_value=0.01, step=1.0)
                 arquivo_enviado = st.file_uploader("Selecione o Comprovante (PNG, JPG ou PDF):", type=["png", "jpg", "jpeg", "pdf"])
                 
                 btn_enviar_comp = st.form_submit_button("📩 Enviar Comprovante de Pagamento")
@@ -794,7 +813,7 @@ else:
                         conn.commit()
                         conn.close()
 
-                        st.success("Comprovante enviado com sucesso! O status do seu pagamento já foi atualizado no Dashboard.")
+                        st.success("Comprovante enviado com sucesso! O status do seu pagamento e os valores devidos já foram recalculados.")
                         st.rerun()
                     else:
                         st.error("Por favor, selecione um arquivo de comprovante.")
@@ -925,9 +944,7 @@ else:
                 st.divider()
 
                 with st.form("form_definir_rateio"):
-                    st.write("Defina a **Data Limite de Vencimento** e confirme o valor oficial do rateio por membro:")
-                    
-                    val_rateio_final = st.number_input("Valor Oficial do Rateio por Pessoa (R$):", value=float(rateio_calculado), min_value=0.0, step=0.5)
+                    st.write("Defina a **Data Limite de Vencimento** do rateio:")
                     
                     raw_data = config_pix.get("data_vencimento_rateio", "")
                     try:
@@ -941,10 +958,9 @@ else:
                     nova_data_venc = st.date_input("Data de Vencimento do Pagamento:", value=data_venc_atual, format="DD/MM/YYYY")
 
                     if st.form_submit_button("💾 Salvar Configurações do Rateio"):
-                        config_pix["valor_rateio_por_pessoa"] = val_rateio_final
                         config_pix["data_vencimento_rateio"] = nova_data_venc.strftime("%d/%m/%Y")
                         salvar_config(config_pix)
-                        st.success("Configurações do rateio atualizadas!")
+                        st.success("Data de vencimento salva com sucesso!")
                         st.rerun()
 
                 st.divider()
