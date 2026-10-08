@@ -1,0 +1,4 @@
+*.db
+config_pix.json
+__pycache__/
+.streamlit/
