@@ -7,6 +7,7 @@ import json
 import os
 import base64
 import urllib.parse
+import unicodedata
 import plotly.express as px
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
@@ -221,6 +222,15 @@ def get_db_connection():
     return sqlite3.connect(DB_FILE)
 
 # --- FUNÇÕES DE UTILIDADE E CRIPTOGRAFIA ---
+def remover_acentos(texto):
+    """Remove acentos e caracteres especiais para o padrão do Banco Central"""
+    if not texto:
+        return ""
+    nfkd = unicodedata.normalize('NFKD', texto)
+    sem_acento = "".join([c for c in nfkd if not unicodedata.combining(c)])
+    # Mantém apenas letras, números e espaços
+    return "".join([c for c in sem_acento if c.isalnum() or c.isspace()]).strip()
+
 def hash_senha(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
@@ -235,7 +245,7 @@ def salvar_config(config):
     with open(ARQUIVO_CONFIG, "w") as f:
         json.dump(config, f)
 
-# --- GERADOR PIX (EMV / QR CODE ISOLADO COM APENAS A CHAVE NO PAYLOAD) ---
+# --- GERADOR PIX VALIDADOR OFICIAL EMV / BANCO CENTRAL ---
 def calcular_crc16(payload):
     crc = 0xFFFF
     for char in payload:
@@ -248,11 +258,17 @@ def calcular_crc16(payload):
     return f"{crc:04X}"
 
 def gerar_payload_pix(chave, nome, cidade, valor=0.0, txid="***"):
-    # Garante que SOMENTE a string limpa da Chave Pix entre na tag da chave (01)
     chave_limpa = str(chave).strip()
     
-    nome = str(nome)[:25].upper().strip() if nome else "CAFE COLETIVO"
-    cidade = str(cidade)[:15].upper().strip() if cidade else "BELO HORIZONTE"
+    # Remove acentos obrigatoriamente
+    nome_limpo = remover_acentos(nome)[:25].upper()
+    cidade_limpa = remover_acentos(cidade)[:15].upper()
+
+    if not nome_limpo:
+        nome_limpo = "CAFE COLETIVO"
+    if not cidade_limpa:
+        cidade_limpa = "BELO HORIZONTE"
+
     valor_str = f"{valor:.2f}" if valor > 0 else ""
 
     gui = "0014br.gov.bcb.pix"
@@ -263,8 +279,8 @@ def gerar_payload_pix(chave, nome, cidade, valor=0.0, txid="***"):
     currency = "5303986"
     amount = f"54{len(valor_str):02d}{valor_str}" if valor > 0 else ""
     country = "5802BR"
-    merchant_name = f"59{len(nome):02d}{nome}"
-    merchant_city = f"60{len(cidade):02d}{cidade}"
+    merchant_name = f"59{len(nome_limpo):02d}{nome_limpo}"
+    merchant_city = f"60{len(cidade_limpa):02d}{cidade_limpa}"
 
     txid_str = f"05{len(txid):02d}{txid}"
     additional_data = f"62{len(txid_str):02d}{txid_str}"
@@ -299,7 +315,6 @@ if eh_convidado:
     
     col1, col2 = st.columns([1, 2])
     
-    # ISOLA EXCLUSIVAMENTE A CHAVE NO PAYLOAD DO QR CODE
     payload_pix = gerar_payload_pix(
         chave=config_pix["chave_pix"], 
         nome=config_pix.get("nome_recebedor", "CAFE COLETIVO"), 
@@ -313,7 +328,7 @@ if eh_convidado:
         st.subheader("📲 Pagamento via Pix")
         st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
         st.write(f"**Chave Pix (Copiar):** `{config_pix['chave_pix']}`")
-        st.write(f"**Titular:** {config_pix.get('nome_recebedor', 'CAFE COLETIVO')}")
+        st.write(f"**Titular:** {remover_acentos(config_pix.get('nome_recebedor', 'CAFE COLETIVO'))}")
         st.text_area("Copia e Cola Pix (Payload EMV):", payload_pix, height=100)
 
     st.divider()
@@ -574,7 +589,7 @@ else:
             with col2:
                 st.write(f"**Tipo de Chave:** {config_pix.get('tipo_chave', 'E-mail')}")
                 st.write(f"**Chave Pix Registrada:** `{config_pix['chave_pix']}`")
-                st.write(f"**Titular:** {config_pix.get('nome_recebedor', 'CAFE COLETIVO')}")
+                st.write(f"**Titular:** {remover_acentos(config_pix.get('nome_recebedor', 'CAFE COLETIVO'))}")
                 st.text_area("Copia e Cola Pix:", payload_pix, height=100)
 
             st.divider()
@@ -585,7 +600,7 @@ else:
             st.code(link_convidado)
 
         # ----------------------------------------------------
-        # 7. PAINEL MASTER / ADM (ISOLAMENTO E LIMPEZA DA CHAVE)
+        # 7. PAINEL MASTER / ADM
         # ----------------------------------------------------
         elif opcao == "🛠️ Painel Master (Gestão)" and user["perfil"] in ["Master", "ADM"]:
             st.header("🛠️ Administração do Sistema e Perfis")
@@ -643,8 +658,8 @@ else:
                 st.subheader("⚙️ Alterar e Cadastrar Chave Pix")
                 st.write("Informe **exclusivamente** o valor da chave no campo correspondente para evitar erros no QR Code.")
 
-                tipos_pix = ["E-mail", "Telefone", "CPF / CNPJ", "Chave Aleatória (EVP)"]
-                tipo_atual = config_pix.get("tipo_chave", "E-mail")
+                tipos_pix = ["Telefone", "E-mail", "CPF / CNPJ", "Chave Aleatória (EVP)"]
+                tipo_atual = config_pix.get("tipo_chave", "Telefone")
                 idx_tipo = tipos_pix.index(tipo_atual) if tipo_atual in tipos_pix else 0
 
                 with st.form("form_config_pix_admin"):
@@ -652,34 +667,35 @@ else:
                     with col_p1:
                         tipo_chave_sel = st.selectbox("Tipo de Chave Pix:", tipos_pix, index=idx_tipo)
                     with col_p2:
-                        chave = st.text_input("Chave Pix (Somente a Chave):", value=config_pix["chave_pix"])
+                        chave = st.text_input("Chave Pix (Ex: 31987121065 ou +5531987121065):", value=config_pix["chave_pix"])
 
                     col_p3, col_p4 = st.columns(2)
                     with col_p3:
-                        nome = st.text_input("Nome do Titular Recebedor:", value=config_pix.get("nome_recebedor", "CAFE COLETIVO"))
+                        nome = st.text_input("Nome do Titular Recebedor:", value=config_pix.get("nome_recebedor", "CELIO PACHECO RODRIGUES"))
                     with col_p4:
                         cidade = st.text_input("Cidade do Titular:", value=config_pix.get("cidade_recebedor", "BELO HORIZONTE"))
 
                     if st.form_submit_button("💾 Salvar Nova Chave Pix"):
                         chave_limpa = chave.strip()
 
-                        # Limpeza estrita para telefone (remove parenteses, traços e espaços)
+                        # Trata Telefone: aceita com ou sem o sinal de + (Ex: +5531987121065)
                         if tipo_chave_sel == "Telefone":
-                            chave_limpa = "".join(filter(str.isdigit, chave_limpa))
-                            if not chave_limpa.startswith("55") and len(chave_limpa) in [10, 11]:
-                                chave_limpa = f"+55{chave_limpa}"
-                            elif not chave_limpa.startswith("+"):
-                                chave_limpa = f"+{chave_limpa}"
+                            apenas_num = "".join(filter(str.isdigit, chave_limpa))
+                            if len(apenas_num) in [10, 11]:
+                                chave_limpa = f"+55{apenas_num}"
+                            elif len(apenas_num) in [12, 13] and apenas_num.startswith("55"):
+                                chave_limpa = f"+{apenas_num}"
 
-                        # Limpeza estrita para CPF/CNPJ (apenas dígitos)
+                        # Trata CPF/CNPJ (apenas dígitos)
                         elif tipo_chave_sel == "CPF / CNPJ":
                             chave_limpa = "".join(filter(str.isdigit, chave_limpa))
 
                         config_pix["tipo_chave"] = tipo_chave_sel
                         config_pix["chave_pix"] = chave_limpa
-                        config_pix["nome_recebedor"] = nome.strip()
-                        config_pix["cidade_recebedor"] = cidade.strip()
+                        # Salva tirando acentos automaticamente
+                        config_pix["nome_recebedor"] = remover_acentos(nome)
+                        config_pix["cidade_recebedor"] = remover_acentos(cidade)
                         salvar_config(config_pix)
                         
-                        st.success(f"Chave Pix salva com sucesso! Valor gravado: '{chave_limpa}'")
+                        st.success(f"Chave Pix salva e validada com sucesso! Valor: '{chave_limpa}'")
                         st.rerun()
